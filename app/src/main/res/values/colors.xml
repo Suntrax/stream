@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AMOLED True Black Theme Colors -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+    
+    <!-- Background Colors -->
+    <color name="background">#000000</color>
+    <color name="surface">#0A0A0A</color>
+    <color name="surface_variant">#1A1A1A</color>
+    <color name="surface_elevated">#2A2A2A</color>
+    
+    <!-- Primary Accent - Purple -->
+    <color name="primary">#BB86FC</color>
+    <color name="primary_variant">#3700B3</color>
+    <color name="on_primary">#000000</color>
+    
+    <!-- Secondary Accent - Teal -->
+    <color name="secondary">#03DAC6</color>
+    <color name="secondary_variant">#018786</color>
+    <color name="on_secondary">#000000</color>
+    
+    <!-- Error -->
+    <color name="error">#CF6679</color>
+    <color name="error_variant">#B00020</color>
+    
+    <!-- Text Colors -->
+    <color name="on_background">#FFFFFF</color>
+    <color name="on_surface">#FFFFFF</color>
+    <color name="on_surface_variant">#AAAAAA</color>
+    
+    <!-- Misc -->
+    <color name="outline">#333333</color>
+    <color name="outline_variant">#444444</color>
+    <color name="scrim">#99000000</color>
+    <color name="ripple">#1FFFFFFF</color>
+    
+    <!-- Card Background -->
+    <color name="card_background">#1A1A1A</color>
+    <color name="card_background_selected">#BB86FC</color>
+</resources>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme - AMOLED Black -->
+    <style name="Theme.StreamApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand colors -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_variant</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        
+        <!-- Secondary brand colors -->
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorSecondaryVariant">@color/secondary_variant</item>
+        <item name="colorOnSecondary">@color/on_secondary</item>
+        
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+        
+        <!-- Background -->
+        <item name="android:windowBackground">@color/black</item>
+        <item name="android:colorBackground">@color/black</item>
+        <item name="backgroundColor">@color/black</item>
+        
+        <!-- Surface colors -->
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        
+        <!-- Error colors -->
+        <item name="colorError">@color/error</item>
+        <item name="colorOnError">@color/black</item>
+        
+        <!-- Text colors -->
+        <item name="android:textColorPrimary">@color/white</item>
+        <item name="android:textColorSecondary">@color/on_surface_variant</item>
+        
+        <!-- Dialogs -->
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.StreamApp.AlertDialog</item>
+        
+        <!-- Window settings -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+    
+    <!-- Dialog Theme -->
+    <style name="ThemeOverlay.StreamApp.AlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorSurface">@color/surface_variant</item>
+        <item name="colorOnSurface">@color/white</item>
+        <item name="android:windowBackground">@color/surface_variant</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TextAppearance.StreamApp.AlertDialog.Title</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.StreamApp.Button</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.StreamApp.Button</item>
+    </style>
+    
+    <style name="TextAppearance.StreamApp.AlertDialog.Title" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/white</item>
+    </style>
+    
+    <style name="Widget.StreamApp.Button" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/primary</item>
+    </style>
+    
+    <!-- Card Style -->
+    <style name="Widget.StreamApp.Card" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/card_background</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">@color/outline</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+    
+    <!-- Search Field Style -->
+    <style name="Widget.StreamApp.SearchField" parent="Widget.AppCompat.EditText">
+        <item name="android:background">@drawable/search_background</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="android:textColorHint">@color/on_surface_variant</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:padding">16dp</item>
+    </style>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic for vidlink.pro -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Domain specific configuration -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">vidlink.pro</domain>
+        <domain includeSubdomains="true">themoviedb.org</domain>
+    </domain-config>
+</network-security-config>
