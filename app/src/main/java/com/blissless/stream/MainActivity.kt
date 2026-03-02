@@ -1,19 +1,23 @@
 package com.blissless.stream
 
-import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
-import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Outline
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.view.animation.LinearInterpolator
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -22,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -29,114 +34,356 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
-import androidx.appcompat.app.AlertDialog
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatEditText
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.widget.doAfterTextChanged
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Timer
+import java.util.TimerTask
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.core.graphics.toColorInt
 
+@UnstableApi
+@SuppressLint("SetTextI18n", "InternalInsetResource", "DiscouragedApi")
 class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
-    // UI Components
+    // UI Components - Main
     private lateinit var rootContainer: ConstraintLayout
-    private lateinit var searchContainer: LinearLayout
-    private lateinit var searchEditText: AppCompatEditText
-    private lateinit var searchWrapper: FrameLayout
-    private lateinit var clearButton: ImageButton
-    private lateinit var loadingIndicator: ProgressBar
-    private lateinit var resultsRecyclerView: RecyclerView
-    private lateinit var contentAdapter: ContentAdapter
+    private lateinit var mainContainer: FrameLayout
+
+    // Navigation
+    private lateinit var bottomNav: LinearLayout
+    private lateinit var btnExplore: LinearLayout
+    private lateinit var btnSearch: LinearLayout
+    private lateinit var ivExplore: ImageView
+    private lateinit var ivSearch: ImageView
+    private lateinit var tvExplore: TextView
+    private lateinit var tvSearch: TextView
+
+    // Explore Page
+    private lateinit var exploreContainer: ScrollView
+    private lateinit var exploreContent: LinearLayout
+    private lateinit var carouselContainer: FrameLayout
+    private lateinit var carouselViewPager: RecyclerView
+    private lateinit var carouselIndicator: LinearLayout
+    private lateinit var exploreLoadingIndicator: ProgressBar
+
+    // Explore Sections
+    private lateinit var popularMoviesRecyclerView: RecyclerView
+    private lateinit var popularTVRecyclerView: RecyclerView
+    private lateinit var topRatedRecyclerView: RecyclerView
+    private lateinit var nowPlayingRecyclerView: RecyclerView
+    private lateinit var actionMoviesRecyclerView: RecyclerView
+    private lateinit var comedyMoviesRecyclerView: RecyclerView
+    private lateinit var horrorMoviesRecyclerView: RecyclerView
+    private lateinit var sciFiMoviesRecyclerView: RecyclerView
+    private lateinit var animationMoviesRecyclerView: RecyclerView
+    private lateinit var thrillerMoviesRecyclerView: RecyclerView
+    private lateinit var fantasyMoviesRecyclerView: RecyclerView
+    private lateinit var topRatedTVRecyclerView: RecyclerView
+    private lateinit var crimeTVShowsRecyclerView: RecyclerView
+
+    // Search Overlay
+    private var searchOverlay: FrameLayout? = null
+    private lateinit var searchOverlayEditText: AppCompatEditText
+    private lateinit var searchOverlayLoading: ProgressBar
+    private lateinit var searchOverlayResults: RecyclerView
+    private lateinit var searchOverlayAdapter: SearchOverlayAdapter
+
+    // Details Dialog
+    private var detailsDialogView: FrameLayout? = null
 
     // Player components
     private lateinit var playerContainer: FrameLayout
-    private lateinit var webView: WebView
-    private lateinit var playerControls: LinearLayout
-    private lateinit var btnBack: ImageButton
-    private lateinit var btnPrevious: ImageButton
-    private lateinit var btnNext: ImageButton
-    private lateinit var btnFullscreen: ImageButton
-    private lateinit var titleTextView: TextView
+    private lateinit var playerView: PlayerView
+    private lateinit var exoPlayer: ExoPlayer
+    private lateinit var scraperWebView: WebView
+    private lateinit var playerLoadingIndicator: ProgressBar
+    private lateinit var overlayContainer: FrameLayout
+    private lateinit var btnResize: ImageButton
+    private lateinit var contentTitleText: TextView
+    private lateinit var skipIndicatorLeft: TextView
+    private lateinit var skipIndicatorRight: TextView
+
+    // ExoPlayer custom controls
+    private var btnPlayerPrevious: ImageButton? = null
+    private var btnPlayerNext: ImageButton? = null
+
+    // Gesture detection
+    private lateinit var gestureDetector: GestureDetector
+
+    // Resize mode
+    private var currentResizeMode = 0
+    private val resizeModes = listOf(
+        AspectRatioFrameLayout.RESIZE_MODE_FIT to "Fit",
+        AspectRatioFrameLayout.RESIZE_MODE_FILL to "Fill",
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "Stretch"
+    )
 
     // State
-    private var isFullscreen = false
+    private var currentNavPage = 0 // 0 = Explore, 1 = Search
     private var currentContent: ContentItem? = null
+    private var currentContentDetails: ContentDetails? = null
     private var currentSeason = 1
     private var currentEpisode = 1
     private var totalSeasons = 1
     private var totalEpisodes = 1
     private var isPlayerVisible = false
+    private var isDetailsVisible = false
+    private var isSearchOverlayVisible = false
+
+    // Season episode counts
     private var seasonEpisodeCounts: Map<Int, Int> = emptyMap()
 
-    // Rotation animation for loading indicator
-    private var rotationAnimator: ValueAnimator? = null
+    // M3U8 scraper state
+    private var foundM3u8Url: String? = null
+    private val scraperLock = AtomicBoolean(false)
 
-    // Ad blocking
+    // Search debounce job
+    private var searchOverlayJob: Job? = null
+
+    // Carousel
+    private var carouselTimer: Timer? = null
+    private var currentCarouselPosition = 0
+    private var carouselItems: List<ContentItem> = emptyList()
+    private lateinit var carouselBackground: AppCompatImageView
+
+    // Ad blocking domains
     private val adDomains = listOf(
-        "googlesyndication.com",
-        "doubleclick.net",
-        "googleadservices.com",
-        "googleads.g.doubleclick.net",
-        "ads.google.com",
-        "pagead2.googlesyndication.com",
-        "adservice.google.com",
-        "taboola.com",
-        "outbrain.com",
-        "popads.net",
-        "popmyads.com",
-        "propellerads.com",
-        "adcash.com",
-        "realsrv.com",
-        "exosrv.com",
-        "JuicyAds.com",
-        "adtng.com",
-        "dtghtv.com",
-        "btrll.com",
-        "criteo.com",
-        "advertising.com",
-        "adnxs.com",
-        "rubiconproject.com",
-        "pubmatic.com",
-        "openx.net",
-        "casalemedia.com",
-        "moatads.com"
+        "googlesyndication.com", "doubleclick.net", "googleadservices.com",
+        "googleads.g.doubleclick.net", "ads.google.com", "pagead2.googlesyndication.com",
+        "adservice.google.com", "taboola.com", "outbrain.com", "popads.net",
+        "popmyads.com", "propellerads.com", "adcash.com", "realsrv.com",
+        "exosrv.com", "JuicyAds.com", "adtng.com", "dtghtv.com",
+        "btrll.com", "criteo.com", "advertising.com", "adnxs.com",
+        "rubiconproject.com", "pubmatic.com", "openx.net",
+        "casalemedia.com", "moatads.com"
     )
 
+    @OptIn(UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createUI()
         setupFullscreenMode()
         setupObservers()
         setupBackHandler()
+        initializePlayer()
+        setupGestureDetector()
+        setupNavigation()
+        loadExploreContent()
     }
 
-    private fun setupFullscreenMode() {
-        window.apply {
-            statusBarColor = Color.BLACK
-            navigationBarColor = Color.BLACK
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insetsController?.apply {
-                    systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    @OptIn(UnstableApi::class)
+    private fun initializePlayer() {
+        exoPlayer = ExoPlayer.Builder(this).build()
+        playerView.player = exoPlayer
+        playerView.useController = true
+        playerView.controllerShowTimeoutMs = 3000
+
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    playNextEpisodeAuto()
+                }
+            }
+        })
+
+        playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+            overlayContainer.visibility = visibility
+        })
+
+        playerView.post {
+            removeBackgroundFromPlayerControls(playerView)
+            setupCustomPlayerControls(playerView)
+        }
+    }
+
+    private fun setupCustomPlayerControls(playerView: PlayerView) {
+        val exoNextBtn = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_next)
+        val exoPrevBtn = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_prev)
+
+        exoNextBtn?.let { btn ->
+            if (btn is ImageButton) {
+                btn.setColorFilter(Color.WHITE)
+                btn.imageAlpha = 255
+            }
+            btn.visibility = View.VISIBLE
+            btn.setOnClickListener { playNextEpisode() }
+        }
+
+        exoPrevBtn?.let { btn ->
+            if (btn is ImageButton) {
+                btn.setColorFilter(Color.WHITE)
+                btn.imageAlpha = 255
+            }
+            btn.visibility = View.VISIBLE
+            btn.setOnClickListener { playPreviousEpisode() }
+        }
+
+        btnPlayerNext = exoNextBtn as? ImageButton
+        btnPlayerPrevious = exoPrevBtn as? ImageButton
+
+        updatePlayerControlsVisibility()
+    }
+
+    private fun updatePlayerControlsVisibility() {
+        currentContent?.let { item ->
+            if (item.type == "tv") {
+                val currentSeasonMax = if (seasonEpisodeCounts.isNotEmpty()) {
+                    seasonEpisodeCounts[currentSeason] ?: totalEpisodes
+                } else {
+                    totalEpisodes
+                }
+
+                val canGoPrevious = currentSeason > 1 || currentEpisode > 1
+                val canGoNext = if (seasonEpisodeCounts.isNotEmpty()) {
+                    currentEpisode < currentSeasonMax || currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)
+                } else {
+                    true
+                }
+
+                btnPlayerPrevious?.let { btn ->
+                    btn.visibility = View.VISIBLE
+                    btn.imageAlpha = if (canGoPrevious) 255 else 100
+                    btn.isEnabled = canGoPrevious
+                    btn.setColorFilter(Color.WHITE)
+                }
+
+                btnPlayerNext?.let { btn ->
+                    btn.visibility = View.VISIBLE
+                    btn.imageAlpha = if (canGoNext) 255 else 100
+                    btn.isEnabled = canGoNext
+                    btn.setColorFilter(Color.WHITE)
                 }
             } else {
-                @Suppress("DEPRECATION")
+                btnPlayerPrevious?.visibility = View.GONE
+                btnPlayerNext?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun removeBackgroundFromPlayerControls(view: View) {
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val child = view.getChildAt(i)
+                if (child is LinearLayout || child is FrameLayout) {
+                    child.setBackgroundColor(Color.TRANSPARENT)
+                }
+                removeBackgroundFromPlayerControls(child)
+            }
+        }
+    }
+
+    private fun setupGestureDetector() {
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val screenWidth = playerView.width
+                val tapX = e.x
+
+                if (tapX < screenWidth / 2) {
+                    skipBackward()
+                } else {
+                    skipForward()
+                }
+                return true
+            }
+        })
+    }
+
+    private fun skipForward() {
+        val ms = 15000L
+        val newPosition = exoPlayer.currentPosition + ms
+        exoPlayer.seekTo(newPosition)
+        showSkipIndicator(right = true, ms)
+    }
+
+    private fun skipBackward() {
+        val ms = 5000L
+        val newPosition = maxOf(0, exoPlayer.currentPosition - ms)
+        exoPlayer.seekTo(newPosition)
+        showSkipIndicator(right = false, ms)
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showSkipIndicator(right: Boolean, ms: Long) {
+        val seconds = ms / 1000
+        if (right) {
+            skipIndicatorRight.text = "+${seconds}s"
+            skipIndicatorRight.visibility = View.VISIBLE
+            Handler(Looper.getMainLooper()).postDelayed({
+                skipIndicatorRight.visibility = View.GONE
+            }, 500)
+        } else {
+            skipIndicatorLeft.text = "-${seconds}s"
+            skipIndicatorLeft.visibility = View.VISIBLE
+            Handler(Looper.getMainLooper()).postDelayed({
+                skipIndicatorLeft.visibility = View.GONE
+            }, 500)
+        }
+    }
+
+    private fun playNextEpisodeAuto() {
+        currentContent?.let { item ->
+            if (item.type == "tv") {
+                val currentSeasonMax = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
+                if (currentEpisode < currentSeasonMax) {
+                    currentEpisode++
+                    continuePlayback()
+                } else if (currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)) {
+                    currentSeason++
+                    currentEpisode = 1
+                    totalEpisodes = seasonEpisodeCounts[currentSeason] ?: 1
+                    continuePlayback()
+                }
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun cycleResizeMode() {
+        currentResizeMode = (currentResizeMode + 1) % resizeModes.size
+        val (mode, name) = resizeModes[currentResizeMode]
+        playerView.resizeMode = mode
+        Toast.makeText(this, name, Toast.LENGTH_SHORT).show()
+    }
+
+    @SuppressLint("InternalInsetResource", "DiscouragedApi")
+    private fun setupFullscreenMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.apply {
+                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsets.Type.systemBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.apply {
+                statusBarColor = Color.BLACK
+                navigationBarColor = Color.BLACK
                 setFlags(
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -145,24 +392,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("InternalInsetResource", "DiscouragedApi")
     private fun getStatusBarHeight(): Int {
         var result = 0
         val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
         if (resourceId > 0) {
             result = resources.getDimensionPixelSize(resourceId)
         }
-        // Fallback if we can't get the status bar height
         if (result == 0) {
             result = (24 * resources.displayMetrics.density).toInt()
         }
         return result
     }
 
+    private fun setupNavigation() {
+        btnExplore.setOnClickListener { switchToExplore() }
+        btnSearch.setOnClickListener { showSearchOverlay() }
+    }
+
+    private fun switchToExplore() {
+        currentNavPage = 0
+        exploreContainer.visibility = View.VISIBLE
+        updateNavSelection()
+    }
+
+    private fun updateNavSelection() {
+        val selectedColor = "#f472a1".toColorInt()
+        val unselectedColor = "#666666".toColorInt()
+
+        if (currentNavPage == 0) {
+            ivExplore.setColorFilter(selectedColor)
+            tvExplore.setTextColor(selectedColor)
+            ivSearch.setColorFilter(unselectedColor)
+            tvSearch.setTextColor(unselectedColor)
+        } else {
+            ivExplore.setColorFilter(unselectedColor)
+            tvExplore.setTextColor(unselectedColor)
+            ivSearch.setColorFilter(selectedColor)
+            tvSearch.setTextColor(selectedColor)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun createUI() {
         val statusBarHeight = getStatusBarHeight()
 
-        // Root container
         rootContainer = ConstraintLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             layoutParams = FrameLayout.LayoutParams(
@@ -171,218 +445,625 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Search container with status bar padding
-        searchContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(16.dp(), 16.dp() + statusBarHeight, 16.dp(), 16.dp())
-            setBackgroundColor(Color.parseColor("#000000"))
+        mainContainer = FrameLayout(this).apply {
+            layoutParams = ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+                0
+            ).apply {
+                topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+                bottomToTop = ConstraintLayout.LayoutParams.PARENT_ID
+            }
         }
 
-        // Search wrapper (FrameLayout to overlay clear button)
-        searchWrapper = FrameLayout(this).apply {
+        // ========== EXPLORE PAGE ==========
+        exploreContainer = ScrollView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.BLACK)
+        }
+
+        exploreContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, statusBarHeight, 0, 80.dp())
+        }
+
+        exploreLoadingIndicator = ProgressBar(this).apply {
+            indeterminateDrawable.setTint("#f472a1".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                topMargin = 100.dp()
+            }
+        }
+
+        carouselContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                220.dp()
+            )
+        }
+
+        // Background image for carousel with transition
+        carouselBackground = AppCompatImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor("#1A1A1A".toColorInt())
+        }
+        carouselContainer.addView(carouselBackground)
+
+        // Gradient overlay for background
+        val carouselGradient = View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf("#60000000".toColorInt(), "#CC000000".toColorInt())
+            )
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        carouselContainer.addView(carouselGradient)
+
+        carouselViewPager = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            PagerSnapHelper().attachToRecyclerView(this)
+        }
+        carouselContainer.addView(carouselViewPager)
+
+        carouselIndicator = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM
+                bottomMargin = 12.dp()
+            }
+        }
+        carouselContainer.addView(carouselIndicator)
+
+        exploreContent.addView(carouselContainer)
+
+        // ========== EXPLORE SECTIONS ==========
+        val popularMoviesSection = createExploreSection("🔥 Popular Movies")
+        exploreContent.addView(popularMoviesSection.first)
+        popularMoviesRecyclerView = popularMoviesSection.second
+
+        val popularTVSection = createExploreSection("📺 Popular TV Shows")
+        exploreContent.addView(popularTVSection.first)
+        popularTVRecyclerView = popularTVSection.second
+
+        val topRatedSection = createExploreSection("⭐ Top Rated Movies")
+        exploreContent.addView(topRatedSection.first)
+        topRatedRecyclerView = topRatedSection.second
+
+        val topRatedTVSection = createExploreSection("🏆 Top Rated Series")
+        exploreContent.addView(topRatedTVSection.first)
+        topRatedTVRecyclerView = topRatedTVSection.second
+
+        val nowPlayingSection = createExploreSection("🎬 Now in Theaters")
+        exploreContent.addView(nowPlayingSection.first)
+        nowPlayingRecyclerView = nowPlayingSection.second
+
+        val actionSection = createExploreSection("💥 Action & Adventure")
+        exploreContent.addView(actionSection.first)
+        actionMoviesRecyclerView = actionSection.second
+
+        val comedySection = createExploreSection("😂 Comedy")
+        exploreContent.addView(comedySection.first)
+        comedyMoviesRecyclerView = comedySection.second
+
+        val horrorSection = createExploreSection("👻 Horror")
+        exploreContent.addView(horrorSection.first)
+        horrorMoviesRecyclerView = horrorSection.second
+
+        val sciFiSection = createExploreSection("🚀 Sci-Fi")
+        exploreContent.addView(sciFiSection.first)
+        sciFiMoviesRecyclerView = sciFiSection.second
+
+        val animationSection = createExploreSection("🎨 Animation")
+        exploreContent.addView(animationSection.first)
+        animationMoviesRecyclerView = animationSection.second
+
+        val thrillerSection = createExploreSection("🔪 Thriller")
+        exploreContent.addView(thrillerSection.first)
+        thrillerMoviesRecyclerView = thrillerSection.second
+
+        val fantasySection = createExploreSection("🧙 Fantasy")
+        exploreContent.addView(fantasySection.first)
+        fantasyMoviesRecyclerView = fantasySection.second
+
+        val crimeTVSection = createExploreSection("🕵️ Crime Dramas")
+        exploreContent.addView(crimeTVSection.first)
+        crimeTVShowsRecyclerView = crimeTVSection.second
+
+        exploreContainer.addView(exploreContent)
+
+        // ========== PLAYER CONTAINER ==========
+        playerContainer = FrameLayout(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.BLACK)
+        }
+
+        playerView = PlayerView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        playerContainer.addView(playerView)
+
+        overlayContainer = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        contentTitleText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(12.dp(), 8.dp() + statusBarHeight, 12.dp(), 8.dp())
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            }
+        }
+        overlayContainer.addView(contentTitleText)
+
+        btnResize = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_crop)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
+            layoutParams = FrameLayout.LayoutParams(40.dp(), 40.dp()).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.END
+                topMargin = statusBarHeight
+                marginEnd = 8.dp()
+            }
+            setOnClickListener { cycleResizeMode() }
+        }
+        overlayContainer.addView(btnResize)
+
+        skipIndicatorLeft = TextView(this).apply {
+            text = "-5s"
+            setTextColor(Color.WHITE)
+            textSize = 24f
+            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
+            setBackgroundColor("#80000000".toColorInt())
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        overlayContainer.addView(skipIndicatorLeft)
+
+        skipIndicatorRight = TextView(this).apply {
+            text = "+15s"
+            setTextColor(Color.WHITE)
+            textSize = 24f
+            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
+            setBackgroundColor("#80000000".toColorInt())
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        overlayContainer.addView(skipIndicatorRight)
+
+        playerContainer.addView(overlayContainer)
+
+        playerLoadingIndicator = ProgressBar(this).apply {
+            indeterminateDrawable.setTint("#f472a1".toColorInt())
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+            visibility = View.GONE
+        }
+        playerContainer.addView(playerLoadingIndicator)
+
+        scraperWebView = WebView(this).apply {
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                loadsImagesAutomatically = false
+                mediaPlaybackRequiresUserGesture = true
+                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            webViewClient = M3u8ScraperWebViewClient()
+            setBackgroundColor(Color.TRANSPARENT)
+            visibility = View.GONE
+        }
+        playerContainer.addView(scraperWebView)
+
+        // ========== BOTTOM NAVIGATION ==========
+        bottomNav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor("#121212".toColorInt())
+            setPadding(0, 8.dp(), 0, 16.dp())
+            layoutParams = ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+                ConstraintLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+            }
+        }
+
+        btnExplore = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(16.dp(), 8.dp(), 16.dp(), 8.dp())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        ivExplore = ImageView(this).apply {
+            setImageResource(R.drawable.ic_compass)
+            setColorFilter("#f472a1".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp()).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        btnExplore.addView(ivExplore)
+
+        tvExplore = TextView(this).apply {
+            text = "Explore"
+            textSize = 12f
+            setTextColor("#f472a1".toColorInt())
+            setPadding(0, 4.dp(), 0, 0)
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        btnExplore.addView(tvExplore)
+
+        bottomNav.addView(btnExplore)
+
+        btnSearch = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(16.dp(), 8.dp(), 16.dp(), 8.dp())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        ivSearch = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_menu_search)
+            setColorFilter("#666666".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp()).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        btnSearch.addView(ivSearch)
+
+        tvSearch = TextView(this).apply {
+            text = "Search"
+            textSize = 12f
+            setTextColor("#666666".toColorInt())
+            setPadding(0, 4.dp(), 0, 0)
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        btnSearch.addView(tvSearch)
+
+        bottomNav.addView(btnSearch)
+
+        rootContainer.addView(exploreContainer, ConstraintLayout.LayoutParams(
+            ConstraintLayout.LayoutParams.MATCH_PARENT,
+            ConstraintLayout.LayoutParams.MATCH_PARENT
+        ).apply {
+            bottomToTop = -1
+        })
+
+        rootContainer.addView(playerContainer, ConstraintLayout.LayoutParams(
+            ConstraintLayout.LayoutParams.MATCH_PARENT,
+            ConstraintLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        rootContainer.addView(bottomNav)
+
+        setContentView(rootContainer)
+
+        // Create search overlay
+        createSearchOverlay()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun createSearchOverlay() {
+        val statusBarHeight = getStatusBarHeight()
+
+        searchOverlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#EB000000"))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            visibility = View.GONE
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dp(), statusBarHeight + 20.dp(), 20.dp(), 20.dp())
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Search bar card
+        val searchBarCard = MaterialCardView(this).apply {
+            radius = 12.dp().toFloat()
+            setCardBackgroundColor("#1A1A1A".toColorInt())
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
 
-        // Search EditText
-        searchEditText = AppCompatEditText(this).apply {
-            hint = "Search movies & TV shows..."
-            setHintTextColor(Color.parseColor("#666666"))
-            setTextColor(Color.WHITE)
-            setBackgroundResource(R.drawable.search_background)
-            setPadding(16.dp(), 16.dp(), 48.dp(), 16.dp()) // Extra padding on right for clear button
+        val searchBarContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(12.dp(), 8.dp(), 8.dp(), 8.dp())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        searchWrapper.addView(searchEditText)
 
-        // Clear button / Loading indicator container
-        val clearButtonContainer = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                40.dp(),
-                40.dp()
-            ).apply {
-                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.END
-                marginEnd = 8.dp()
-            }
+        // Search icon
+        val searchIcon = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_menu_search)
+            setColorFilter("#f472a1".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(24.dp(), 24.dp())
         }
+        searchBarContainer.addView(searchIcon)
 
-        // Clear button (X)
-        clearButton = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(Color.parseColor("#888888"))
+        // Spacer
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(8.dp(), 1.dp())
+        }
+        searchBarContainer.addView(spacer)
+
+        // EditText
+        searchOverlayEditText = AppCompatEditText(this).apply {
+            hint = "Search movies & TV shows..."
+            setHintTextColor("#666666".toColorInt())
+            setTextColor(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            visibility = View.GONE
-            setOnClickListener {
-                searchEditText.setText("")
-                searchEditText.requestFocus()
-            }
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        clearButtonContainer.addView(clearButton)
+        searchBarContainer.addView(searchOverlayEditText)
 
-        // Loading indicator (ProgressBar)
-        loadingIndicator = ProgressBar(this).apply {
-            indeterminateDrawable.setTint(Color.parseColor("#BB86FC"))
-            layoutParams = FrameLayout.LayoutParams(
-                28.dp(),
-                28.dp()
-            ).apply {
-                gravity = android.view.Gravity.CENTER
-            }
+        // Loading indicator
+        searchOverlayLoading = ProgressBar(this).apply {
+            indeterminateDrawable.setTint("#f472a1".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(20.dp(), 20.dp())
             visibility = View.GONE
         }
-        clearButtonContainer.addView(loadingIndicator)
+        searchBarContainer.addView(searchOverlayLoading)
 
-        searchWrapper.addView(clearButtonContainer)
-        searchContainer.addView(searchWrapper)
+        // Close button
+        val closeBtn = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(4.dp(), 4.dp(), 4.dp(), 4.dp())
+            layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp())
+            setOnClickListener { hideSearchOverlay() }
+        }
+        searchBarContainer.addView(closeBtn)
+
+        searchBarCard.addView(searchBarContainer)
+        container.addView(searchBarCard)
 
         // Results RecyclerView
-        resultsRecyclerView = RecyclerView(this).apply {
+        searchOverlayResults = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
-            contentAdapter = ContentAdapter { item -> onContentClicked(item) }
-            adapter = contentAdapter
+            searchOverlayAdapter = SearchOverlayAdapter { item ->
+                onContentClicked(item)
+                hideSearchOverlay()
+            }
+            adapter = searchOverlayAdapter
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
                 1f
+            ).apply {
+                topMargin = 12.dp()
+            }
+            addItemDecoration(object : RecyclerView.ItemDecoration() {
+                override fun getItemOffsets(
+                    outRect: android.graphics.Rect,
+                    view: View,
+                    parent: RecyclerView,
+                    state: RecyclerView.State
+                ) {
+                    outRect.set(0, 0, 0, 8.dp())
+                }
+            })
+        }
+        container.addView(searchOverlayResults)
+
+        searchOverlay?.addView(container)
+        rootContainer.addView(searchOverlay)
+
+        // Setup debounced search for overlay
+        searchOverlayEditText.doAfterTextChanged { text ->
+            searchOverlayJob?.cancel()
+            searchOverlayJob = lifecycleScope.launch {
+                if (text.isNullOrEmpty()) {
+                    searchOverlayAdapter.submitList(emptyList())
+                    searchOverlayLoading.visibility = View.GONE
+                } else {
+                    searchOverlayLoading.visibility = View.VISIBLE
+                    delay(500)
+                    viewModel.searchContent(text.toString())
+                }
+            }
+        }
+    }
+
+    private fun showSearchOverlay() {
+        isSearchOverlayVisible = true
+        searchOverlay?.visibility = View.VISIBLE
+        searchOverlayEditText.requestFocus()
+
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(searchOverlayEditText, InputMethodManager.SHOW_IMPLICIT)
+
+        currentNavPage = 1
+        updateNavSelection()
+    }
+
+    private fun hideSearchOverlay() {
+        isSearchOverlayVisible = false
+        searchOverlay?.visibility = View.GONE
+        searchOverlayEditText.text?.clear()
+        searchOverlayEditText.clearFocus()
+
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchOverlayEditText.windowToken, 0)
+
+        currentNavPage = 0
+        updateNavSelection()
+    }
+
+    private fun createExploreSection(title: String): Pair<LinearLayout, RecyclerView> {
+        val sectionContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 16.dp(), 0, 16.dp())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        searchContainer.addView(resultsRecyclerView)
 
-        // Player container (initially hidden)
-        playerContainer = FrameLayout(this).apply {
-            visibility = View.GONE
-            setBackgroundColor(Color.BLACK)
-        }
-
-        // WebView for video playback
-        webView = WebView(this).apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                loadsImagesAutomatically = true
-                mediaPlaybackRequiresUserGesture = false
-                allowFileAccess = true
-                allowContentAccess = true
-                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            webViewClient = AdBlockWebViewClient()
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    super.onProgressChanged(view, newProgress)
-                    if (newProgress == 100) {
-                        injectPlayerEnhancements()
-                    }
-                }
-            }
-            setBackgroundColor(Color.BLACK)
-        }
-
-        // Enable cookies
-        CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
-        }
-
-        playerContainer.addView(webView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // Player controls overlay
-        playerControls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor("#CC000000"))
-            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = android.view.Gravity.BOTTOM
-            }
-        }
-
-        // Back button
-        btnBack = createControlButton(android.R.drawable.ic_menu_revert) { closePlayer() }
-        playerControls.addView(btnBack)
-
-        // Previous episode button
-        btnPrevious = createControlButton(R.drawable.ic_skip_previous) { playPreviousEpisode() }
-        playerControls.addView(btnPrevious)
-
-        // Next episode button
-        btnNext = createControlButton(R.drawable.ic_skip_next) { playNextEpisode() }
-        playerControls.addView(btnNext)
-
-        // Title text
-        titleTextView = TextView(this).apply {
+        val titleText = TextView(this).apply {
+            text = title
             setTextColor(Color.WHITE)
-            textSize = 14f
-            setPadding(16.dp(), 0, 16.dp(), 0)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            textSize = 18f
+            setPadding(16.dp(), 0, 16.dp(), 8.dp())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
-        playerControls.addView(titleTextView)
+        sectionContainer.addView(titleText)
 
-        // Fullscreen button
-        btnFullscreen = createControlButton(R.drawable.ic_fullscreen) { toggleFullscreen() }
-        playerControls.addView(btnFullscreen)
+        val recyclerView = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                220.dp()
+            )
+            setPadding(8.dp(), 0, 8.dp(), 0)
+        }
+        sectionContainer.addView(recyclerView)
 
-        playerContainer.addView(playerControls)
-
-        // Add views to root
-        rootContainer.addView(searchContainer, ConstraintLayout.LayoutParams(
-            ConstraintLayout.LayoutParams.MATCH_PARENT,
-            ConstraintLayout.LayoutParams.MATCH_PARENT
-        ))
-        rootContainer.addView(playerContainer, ConstraintLayout.LayoutParams(
-            ConstraintLayout.LayoutParams.MATCH_PARENT,
-            ConstraintLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        setContentView(rootContainer)
-
-        // Setup debounced search
-        setupDebouncedSearch()
+        return Pair(sectionContainer, recyclerView)
     }
 
-    private fun createControlButton(iconRes: Int, onClick: () -> Unit): ImageButton {
-        return ImageButton(this).apply {
-            setImageResource(iconRes)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(12.dp(), 12.dp(), 12.dp(), 12.dp())
-            setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(48.dp(), 48.dp())
+    private fun loadExploreContent() {
+        lifecycleScope.launch {
+            exploreLoadingIndicator.visibility = View.VISIBLE
+
+            viewModel.loadTrending()
+            viewModel.loadPopularMovies()
+            viewModel.loadPopularTVShows()
+            viewModel.loadTopRatedMovies()
+            viewModel.loadTopRatedTVShows()
+            viewModel.loadNowPlaying()
+            viewModel.loadActionMovies()
+            viewModel.loadComedyMovies()
+            viewModel.loadHorrorMovies()
+            viewModel.loadSciFiMovies()
+            viewModel.loadAnimationMovies()
+            viewModel.loadThrillerMovies()
+            viewModel.loadFantasyMovies()
+            viewModel.loadCrimeTVShows()
+
+            exploreLoadingIndicator.visibility = View.GONE
         }
     }
 
-    @OptIn(FlowPreview::class)
-    private fun setupDebouncedSearch() {
-        var searchJob: Job? = null
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupTouchListener() {
+        playerView.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            false
+        }
+    }
 
-        searchEditText.doAfterTextChanged { text ->
-            // Show/hide clear button based on text
-            clearButton.visibility = if (!text.isNullOrEmpty()) View.VISIBLE else View.GONE
-
-            searchJob?.cancel()
-            searchJob = lifecycleScope.launch {
-                text?.toString()?.let { query ->
-                    if (query.length >= 2) {
-                        kotlinx.coroutines.delay(500) // 500ms debounce
-                        viewModel.searchContent(query)
-                    }
+    private fun playPreviousEpisode() {
+        currentContent?.let { item ->
+            if (item.type == "tv") {
+                if (currentEpisode > 1) {
+                    currentEpisode--
+                    continuePlayback()
+                } else if (currentSeason > 1) {
+                    currentSeason--
+                    currentEpisode = seasonEpisodeCounts[currentSeason] ?: 1
+                    totalEpisodes = seasonEpisodeCounts[currentSeason] ?: 1
+                    continuePlayback()
                 }
+            }
+        }
+    }
+
+    private fun playNextEpisode() {
+        currentContent?.let { item ->
+            if (item.type == "tv") {
+                val currentSeasonMax = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
+                if (currentEpisode < currentSeasonMax) {
+                    currentEpisode++
+                    continuePlayback()
+                } else if (currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)) {
+                    currentSeason++
+                    currentEpisode = 1
+                    totalEpisodes = seasonEpisodeCounts[currentSeason] ?: 1
+                    continuePlayback()
+                }
+            }
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun updateContentTitle() {
+        currentContent?.let { item ->
+            contentTitleText.text = if (item.type == "tv") {
+                "${item.name} - S${currentSeason}E$currentEpisode"
+            } else {
+                item.name
             }
         }
     }
@@ -390,22 +1071,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupObservers() {
         lifecycleScope.launch {
             viewModel.searchResults.collect { results ->
-                contentAdapter.submitList(results)
-            }
-        }
-
-        lifecycleScope.launch {
-            viewModel.isLoading.collect { isLoading ->
-                if (isLoading) {
-                    clearButton.visibility = View.GONE
-                    loadingIndicator.visibility = View.VISIBLE
-                } else {
-                    loadingIndicator.visibility = View.GONE
-                    // Show clear button again if there's text
-                    if (searchEditText.text?.isNotEmpty() == true) {
-                        clearButton.visibility = View.VISIBLE
-                    }
-                }
+                searchOverlayAdapter.submitList(results)
+                searchOverlayLoading.visibility = View.GONE
             }
         }
 
@@ -419,13 +1086,233 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             viewModel.seasonInfo.collect { info ->
-                info?.let { (seasons, episodes) ->
+                info.let { (seasons, episodes) ->
                     totalSeasons = seasons
                     totalEpisodes = episodes
-                    updateNavigationButtons()
                 }
             }
         }
+
+        lifecycleScope.launch {
+            viewModel.trending.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupCarousel(items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.popularMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(popularMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.popularTVShows.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(popularTVRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.topRatedMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(topRatedRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.topRatedTVShows.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(topRatedTVRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.nowPlaying.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(nowPlayingRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.actionMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(actionMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.comedyMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(comedyMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.horrorMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(horrorMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.sciFiMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(sciFiMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.animationMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(animationMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.thrillerMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(thrillerMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.fantasyMovies.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(fantasyMoviesRecyclerView, items)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.crimeTVShows.collect { items ->
+                if (items.isNotEmpty()) {
+                    setupHorizontalSection(crimeTVShowsRecyclerView, items)
+                }
+            }
+        }
+    }
+
+    private fun setupCarousel(items: List<ContentItem>) {
+        carouselItems = items
+        val carouselAdapter = CarouselAdapter(items) { item ->
+            onContentClicked(item)
+        }
+        carouselViewPager.adapter = carouselAdapter
+
+        carouselIndicator.removeAllViews()
+        items.take(10).forEachIndexed { index, _ ->
+            val dot = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(8.dp(), 8.dp()).apply {
+                    marginEnd = 4.dp()
+                }
+                setBackgroundResource(android.R.drawable.presence_invisible)
+                setBackgroundColor(if (index == 0) "#f472a1".toColorInt() else "#666666".toColorInt())
+            }
+            carouselIndicator.addView(dot)
+        }
+
+        // Load initial background
+        updateCarouselBackground(0)
+
+        carouselViewPager.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
+
+                // Use center-based position detection for symmetric behavior in both directions
+                val centerX = recyclerView.width / 2
+                val centerChild = recyclerView.findChildViewUnder(centerX.toFloat(), recyclerView.height / 2f)
+
+                if (centerChild != null) {
+                    val newPosition = recyclerView.getChildAdapterPosition(centerChild)
+                    if (newPosition != RecyclerView.NO_POSITION && newPosition != currentCarouselPosition) {
+                        // Clamp to valid range
+                        val clampedPosition = newPosition.coerceIn(0, minOf(carouselItems.size, 10) - 1)
+
+                        currentCarouselPosition = clampedPosition
+                        updateCarouselIndicator()
+                        updateCarouselBackground(clampedPosition)
+                    }
+                }
+            }
+
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+                    layoutManager?.let {
+                        val newPosition = it.findFirstCompletelyVisibleItemPosition()
+                        if (newPosition != RecyclerView.NO_POSITION && newPosition != currentCarouselPosition) {
+                            currentCarouselPosition = newPosition
+                            updateCarouselIndicator()
+                            updateCarouselBackground(newPosition)
+                            resetCarouselTimer()
+                        }
+                    }
+                }
+            }
+        })
+
+        startCarouselTimer()
+    }
+
+    private fun updateCarouselBackground(position: Int) {
+        if (position < 0 || position >= carouselItems.size) return
+        val item = carouselItems[position]
+        val backdropUrl = item.backdropUrl ?: item.posterUrl
+
+        if (!backdropUrl.isNullOrEmpty()) {
+            Glide.with(this)
+                .load(backdropUrl)
+                .transition(DrawableTransitionOptions.withCrossFade(300))
+                .centerCrop()
+                .into(carouselBackground)
+        }
+    }
+
+    private fun startCarouselTimer() {
+        carouselTimer?.cancel()
+        carouselTimer = Timer()
+        carouselTimer?.schedule(object : TimerTask() {
+            override fun run() {
+                runOnUiThread {
+                    currentCarouselPosition = (currentCarouselPosition + 1) % minOf(carouselItems.size, 10)
+                    carouselViewPager.smoothScrollToPosition(currentCarouselPosition)
+                    updateCarouselIndicator()
+                    updateCarouselBackground(currentCarouselPosition)
+                }
+            }
+        }, 5000, 5000)
+    }
+
+    private fun resetCarouselTimer() {
+        startCarouselTimer()
+    }
+
+    private fun updateCarouselIndicator() {
+        for (i in 0 until carouselIndicator.childCount) {
+            val dot = carouselIndicator.getChildAt(i)
+            dot.setBackgroundColor(if (i == currentCarouselPosition) "#f472a1".toColorInt() else "#666666".toColorInt())
+        }
+    }
+
+    private fun setupHorizontalSection(recyclerView: RecyclerView, items: List<ContentItem>) {
+        val adapter = HorizontalContentAdapter(items) { item ->
+            onContentClicked(item)
+        }
+        recyclerView.adapter = adapter
     }
 
     private fun setupBackHandler() {
@@ -433,37 +1320,367 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 if (isPlayerVisible) {
                     closePlayer()
+                } else if (isSearchOverlayVisible) {
+                    hideSearchOverlay()
+                } else if (isDetailsVisible) {
+                    hideDetailsDialog()
                 } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                        finish()
-                    } else {
-                        @Suppress("DEPRECATION")
-                        finish()
-                    }
+                    finish()
                 }
             }
         })
     }
 
     private fun onContentClicked(item: ContentItem) {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchOverlayEditText.windowToken, 0)
+        searchOverlayEditText.clearFocus()
+
         currentContent = item
-        when (item.type) {
-            "movie" -> {
+        showContentDetails(item)
+    }
+
+    // ========== CONTENT DETAILS DIALOG ==========
+    @SuppressLint("SetTextI18n")
+    private fun showContentDetails(item: ContentItem) {
+        isDetailsVisible = true
+
+        detailsDialogView = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val scrollView = ScrollView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        val contentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val backdropContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                250.dp()
+            )
+        }
+
+        val backdropImageView = AppCompatImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor("#1A1A1A".toColorInt())
+        }
+        backdropContainer.addView(backdropImageView)
+
+        val gradientView = View(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                80.dp()
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM
+            }
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.TRANSPARENT, Color.BLACK)
+            )
+        }
+        backdropContainer.addView(gradientView)
+        contentContainer.addView(backdropContainer)
+
+        val infoSection = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(16.dp(), 16.dp(), 16.dp(), 16.dp())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val posterImageView = AppCompatImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(100.dp(), 150.dp()).apply {
+                marginEnd = 16.dp()
+            }
+            setBackgroundColor("#2A2A2A".toColorInt())
+        }
+        infoSection.addView(posterImageView)
+
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val titleTextView = TextView(this).apply {
+            text = item.name
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            setLines(2)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        textContainer.addView(titleTextView)
+
+        // Type badge - aligned with title
+        val typeTextView = TextView(this).apply {
+            text = if (item.type == "tv") "TV Series" else "Movie"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(12.dp(), 6.dp(), 12.dp(), 6.dp())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8.dp().toFloat()
+                setColor("#CC000000".toColorInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 6.dp()
+            }
+        }
+        textContainer.addView(typeTextView)
+
+        val ratingTextView = TextView(this).apply {
+            text = "Loading..."
+            setTextColor("#888888".toColorInt())
+            textSize = 14f
+        }
+        textContainer.addView(ratingTextView)
+
+        val metaTextView = TextView(this).apply {
+            text = ""
+            setTextColor("#888888".toColorInt())
+            textSize = 12f
+            setPadding(0, 4.dp(), 0, 0)
+        }
+        textContainer.addView(metaTextView)
+
+        infoSection.addView(textContainer)
+        contentContainer.addView(infoSection)
+
+        val genresContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(16.dp(), 0, 16.dp(), 16.dp())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        contentContainer.addView(genresContainer)
+
+        val taglineTextView = TextView(this).apply {
+            setTextColor("#AAAAAA".toColorInt())
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.ITALIC)
+            setPadding(16.dp(), 0, 16.dp(), 8.dp())
+            visibility = View.GONE
+        }
+        contentContainer.addView(taglineTextView)
+
+        val overviewTitle = TextView(this).apply {
+            text = "Overview"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(16.dp(), 16.dp(), 16.dp(), 8.dp())
+        }
+        contentContainer.addView(overviewTitle)
+
+        val overviewTextView = TextView(this).apply {
+            text = "Loading description..."
+            setTextColor("#CCCCCC".toColorInt())
+            textSize = 14f
+            setPadding(16.dp(), 0, 16.dp(), 16.dp())
+            lineHeight = 24.dp()
+        }
+        contentContainer.addView(overviewTextView)
+
+        val additionalInfoContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dp(), 8.dp(), 16.dp(), 16.dp())
+        }
+
+        val statusTextView = TextView(this).apply {
+            setTextColor("#888888".toColorInt())
+            textSize = 12f
+            visibility = View.GONE
+        }
+        additionalInfoContainer.addView(statusTextView)
+        contentContainer.addView(additionalInfoContainer)
+
+        val watchButton = MaterialCardView(this).apply {
+            radius = 24.dp().toFloat()
+            setCardBackgroundColor("#f472a1".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                48.dp()
+            ).apply {
+                setMargins(16.dp(), 16.dp(), 16.dp(), 80.dp())
+            }
+            useCompatPadding = false
+            isClickable = true
+            isFocusable = true
+        }
+
+        val watchButtonText = TextView(this).apply {
+            text = "Watch Now"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            gravity = android.view.Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        watchButton.addView(watchButtonText)
+        contentContainer.addView(watchButton)
+
+        scrollView.addView(contentContainer)
+        detailsDialogView?.addView(scrollView)
+
+        val closeButton = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(16.dp(), 16.dp(), 16.dp(), 16.dp())
+            layoutParams = FrameLayout.LayoutParams(48.dp(), 48.dp()).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.END
+                topMargin = 12.dp() + getStatusBarHeight()
+                marginEnd = 12.dp()
+            }
+            setOnClickListener { hideDetailsDialog() }
+        }
+        detailsDialogView?.addView(closeButton)
+
+        rootContainer.addView(detailsDialogView)
+
+        lifecycleScope.launch {
+            val details = viewModel.getContentDetails(item)
+            details?.let { d ->
+                currentContentDetails = d
+
+                if (!d.backdropUrl.isNullOrEmpty()) {
+                    Glide.with(this@MainActivity)
+                        .load(d.backdropUrl)
+                        .centerCrop()
+                        .into(backdropImageView)
+                } else if (!d.posterUrl.isNullOrEmpty()) {
+                    Glide.with(this@MainActivity)
+                        .load(d.posterUrl)
+                        .centerCrop()
+                        .into(backdropImageView)
+                }
+
+                if (!d.posterUrl.isNullOrEmpty()) {
+                    Glide.with(this@MainActivity)
+                        .load(d.posterUrl)
+                        .centerCrop()
+                        .into(posterImageView)
+                }
+
+                titleTextView.text = d.title
+                typeTextView.text = if (d.type == "tv") "TV Series" else "Movie"
+
+                val ratingText = if (d.voteAverage > 0) {
+                    "★ %.1f".format(d.voteAverage)
+                } else {
+                    "No rating"
+                }
+                ratingTextView.text = ratingText
+                if (d.voteAverage >= 7) {
+                    ratingTextView.setTextColor("#4CAF50".toColorInt())
+                } else if (d.voteAverage >= 5) {
+                    ratingTextView.setTextColor("#FFC107".toColorInt())
+                }
+
+                val metaParts = mutableListOf<String>()
+                if (d.releaseDate.isNotEmpty()) {
+                    metaParts.add(d.releaseDate.take(4))
+                }
+                if (d.runtime > 0) {
+                    val hours = d.runtime / 60
+                    val mins = d.runtime % 60
+                    metaParts.add("${hours}h ${mins}m")
+                }
+                if (d.type == "tv" && d.numberOfSeasons > 0) {
+                    metaParts.add("${d.numberOfSeasons} Season${if (d.numberOfSeasons > 1) "s" else ""}")
+                }
+                metaTextView.text = metaParts.joinToString(" • ")
+
+                genresContainer.removeAllViews()
+                d.genres.take(4).forEach { genre ->
+                    val chip = TextView(this@MainActivity).apply {
+                        text = genre
+                        setTextColor("#f472a1".toColorInt())
+                        textSize = 12f
+                        setPadding(12.dp(), 6.dp(), 12.dp(), 6.dp())
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = 12.dp().toFloat()
+                            setColor("#1A1A1A".toColorInt())
+                            setStroke(1.dp(), "#f472a1".toColorInt())
+                        }
+                    }
+                    genresContainer.addView(chip)
+                    if (genre != d.genres.take(4).last()) {
+                        val spacer = View(this@MainActivity).apply {
+                            layoutParams = LinearLayout.LayoutParams(8.dp(), 1.dp())
+                        }
+                        genresContainer.addView(spacer)
+                    }
+                }
+
+                if (d.tagline.isNotEmpty()) {
+                    taglineTextView.text = "\"${d.tagline}\""
+                    taglineTextView.visibility = View.VISIBLE
+                }
+
+                overviewTextView.text = d.overview.ifEmpty { "No description available." }
+
+                if (d.status.isNotEmpty()) {
+                    statusTextView.text = "Status: ${d.status}"
+                    statusTextView.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        watchButton.setOnClickListener {
+            if (item.type == "tv") {
+                showEpisodeSelectorFromDetails(item)
+            } else {
+                hideDetailsDialog()
                 currentSeason = 1
                 currentEpisode = 1
                 totalSeasons = 1
                 totalEpisodes = 1
                 playContent(item)
             }
-            "tv" -> showEpisodeSelector(item)
         }
     }
 
-    private fun showEpisodeSelector(item: ContentItem) {
+    private fun showEpisodeSelectorFromDetails(item: ContentItem) {
         lifecycleScope.launch {
-            loadingIndicator.visibility = View.VISIBLE
             val seasonData = viewModel.getSeasonInfoWithEpisodes(item.id)
-            loadingIndicator.visibility = View.GONE
 
             if (seasonData.isEmpty()) {
                 Toast.makeText(this@MainActivity, "Could not load episode info", Toast.LENGTH_SHORT).show()
@@ -476,6 +1693,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun hideDetailsDialog() {
+        isDetailsVisible = false
+        detailsDialogView?.let {
+            rootContainer.removeView(it)
+        }
+        detailsDialogView = null
+    }
+
     @SuppressLint("SetTextI18n")
     private fun showSeasonEpisodeDialog(item: ContentItem, seasonData: Map<Int, Int>) {
         val dialogView = LinearLayout(this).apply {
@@ -483,20 +1708,10 @@ class MainActivity : AppCompatActivity() {
             setPadding(24.dp(), 24.dp(), 24.dp(), 24.dp())
         }
 
-        // Season selector
-        val seasonLabel = TextView(this).apply {
-            text = "Season"
-            setTextColor(Color.WHITE)
-            textSize = 16f
-        }
-        dialogView.addView(seasonLabel)
-
         var selectedSeason = 1
         var selectedEpisode = 1
-
         val seasonItems = mutableMapOf<Int, MaterialCardView>()
 
-        // Grid layout for episodes - defined BEFORE season click listener so it can be referenced
         val episodeGridLayout = GridLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -504,7 +1719,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Horizontal scroll container for seasons
         val seasonScrollView = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = true
             setPadding(0, 8.dp(), 0, 16.dp())
@@ -525,7 +1739,7 @@ class MainActivity : AppCompatActivity() {
         seasonData.keys.sorted().forEachIndexed { index, seasonNum ->
             val seasonCard = MaterialCardView(this).apply {
                 radius = 8.dp().toFloat()
-                setCardBackgroundColor(if (index == 0) Color.parseColor("#BB86FC") else Color.parseColor("#1A1A1A"))
+                setCardBackgroundColor(if (index == 0) "#f472a1".toColorInt() else "#1A1A1A".toColorInt())
                 layoutParams = LinearLayout.LayoutParams(48.dp(), 48.dp()).apply {
                     marginEnd = 8.dp()
                 }
@@ -534,12 +1748,11 @@ class MainActivity : AppCompatActivity() {
                     val newSeason = (clickedView as MaterialCardView).tag as Int
                     if (newSeason != selectedSeason) {
                         selectedSeason = newSeason
-                        seasonItems.forEach { (num, card) ->
-                            card.setCardBackgroundColor(Color.parseColor("#1A1A1A"))
+                        seasonItems.forEach { (_, card) ->
+                            card.setCardBackgroundColor("#1A1A1A".toColorInt())
                         }
-                        setCardBackgroundColor(Color.parseColor("#BB86FC"))
+                        setCardBackgroundColor("#f472a1".toColorInt())
 
-                        // Update episode selector for this season
                         val epCount = seasonData[selectedSeason] ?: 0
                         totalEpisodes = epCount
                         selectedEpisode = 1
@@ -565,7 +1778,6 @@ class MainActivity : AppCompatActivity() {
         seasonScrollView.addView(seasonContainer)
         dialogView.addView(seasonScrollView)
 
-        // Episode selector label
         val episodeLabel = TextView(this).apply {
             text = "Episode"
             setTextColor(Color.WHITE)
@@ -573,17 +1785,15 @@ class MainActivity : AppCompatActivity() {
         }
         dialogView.addView(episodeLabel)
 
-        // Vertical scroll container for episodes
         val episodeScrollView = ScrollView(this).apply {
             isVerticalScrollBarEnabled = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                200.dp() // Fixed height for scrolling
+                200.dp()
             )
             setPadding(0, 8.dp(), 0, 8.dp())
         }
 
-        // Initial episode count for season 1
         totalEpisodes = seasonData[1] ?: 0
         updateEpisodeSelector(episodeGridLayout, totalEpisodes, selectedEpisode) { ep ->
             selectedEpisode = ep
@@ -595,6 +1805,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(item.name)
             .setView(dialogView)
             .setPositiveButton("Play") { _, _ ->
+                hideDetailsDialog()
                 currentSeason = selectedSeason
                 currentEpisode = selectedEpisode
                 totalEpisodes = seasonData[selectedSeason] ?: 1
@@ -605,6 +1816,12 @@ class MainActivity : AppCompatActivity() {
 
         dialog.setOnShowListener {
             dialog.window?.setBackgroundDrawableResource(android.R.color.black)
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.let { btn ->
+                btn.setTextColor("#f472a1".toColorInt())
+            }
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.let { btn ->
+                btn.setTextColor("#f472a1".toColorInt())
+            }
         }
 
         dialog.show()
@@ -621,7 +1838,7 @@ class MainActivity : AppCompatActivity() {
         if (episodeCount == 0) {
             val noEpisodesText = TextView(this).apply {
                 text = "No episodes available yet"
-                setTextColor(Color.parseColor("#888888"))
+                setTextColor("#888888".toColorInt())
                 textSize = 14f
                 setPadding(0, 8.dp(), 0, 8.dp())
             }
@@ -629,14 +1846,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        container.columnCount = 5 // 5 episodes per row
+        container.columnCount = 5
 
         val episodeCards = mutableMapOf<Int, MaterialCardView>()
 
         for (i in 1..episodeCount) {
             val episodeCard = MaterialCardView(this).apply {
                 radius = 8.dp().toFloat()
-                setCardBackgroundColor(if (i == currentSelection) Color.parseColor("#BB86FC") else Color.parseColor("#1A1A1A"))
+                setCardBackgroundColor(if (i == currentSelection) "#f472a1".toColorInt() else "#1A1A1A".toColorInt())
                 layoutParams = GridLayout.LayoutParams().apply {
                     width = 48.dp()
                     height = 48.dp()
@@ -645,9 +1862,9 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     onSelect(i)
                     episodeCards.forEach { (_, card) ->
-                        card.setCardBackgroundColor(Color.parseColor("#1A1A1A"))
+                        card.setCardBackgroundColor("#1A1A1A".toColorInt())
                     }
-                    setCardBackgroundColor(Color.parseColor("#BB86FC"))
+                    setCardBackgroundColor("#f472a1".toColorInt())
                 }
                 addView(TextView(this@MainActivity).apply {
                     text = "$i"
@@ -667,93 +1884,109 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetTextI18n")
     private fun playContent(item: ContentItem) {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchOverlayEditText.windowToken, 0)
+        searchOverlayEditText.clearFocus()
+
         isPlayerVisible = true
         playerContainer.visibility = View.VISIBLE
-        searchContainer.visibility = View.GONE
+        bottomNav.visibility = View.GONE
+        exploreContainer.visibility = View.GONE
 
         currentContent = item
+        playerLoadingIndicator.visibility = View.VISIBLE
 
-        val streamUrl = if (item.type == "tv") {
-            "https://vidlink.pro/tv/${item.id}/$currentSeason/$currentEpisode?primaryColor=bb86fc&secondaryColor=03dac6&iconColor=ffffff&autoplay=true"
+        updateContentTitle()
+
+        val vidlinkUrl = if (item.type == "tv") {
+            "https://vidlink.pro/tv/${item.id}/$currentSeason/$currentEpisode"
         } else {
-            "https://vidlink.pro/movie/${item.id}?primaryColor=bb86fc&secondaryColor=03dac6&iconColor=ffffff&autoplay=true"
+            "https://vidlink.pro/movie/${item.id}"
         }
 
-        titleTextView.text = if (item.type == "tv") {
-            "${item.name} - S${currentSeason}E$currentEpisode"
-        } else {
-            item.name
-        }
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        setupTouchListener()
 
-        updateNavigationButtons()
-
-        // Load URL with ad blocking enabled
-        webView.loadUrl(streamUrl)
-
-        hideSystemUI()
-    }
-
-    private fun updateNavigationButtons() {
-        val isTV = currentContent?.type == "tv"
-        val canGoPrevious = isTV && (currentSeason > 1 || currentEpisode > 1)
-        val canGoNext = isTV && let {
-            val currentSeasonMax = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
-            if (currentEpisode < currentSeasonMax) {
-                true
-            } else if (currentSeason < totalSeasons) {
-                seasonEpisodeCounts[currentSeason + 1]?.let { it > 0 } ?: false
-            } else {
-                false
+        if (item.type == "tv" && seasonEpisodeCounts.isEmpty()) {
+            lifecycleScope.launch {
+                val seasonData = viewModel.getSeasonInfoWithEpisodes(item.id)
+                if (seasonData.isNotEmpty()) {
+                    seasonEpisodeCounts = seasonData
+                    totalSeasons = seasonData.keys.maxOrNull() ?: 1
+                    runOnUiThread {
+                        updatePlayerControlsVisibility()
+                    }
+                }
             }
+        } else {
+            updatePlayerControlsVisibility()
         }
 
-        btnPrevious.visibility = if (canGoPrevious) View.VISIBLE else View.GONE
-        btnNext.visibility = if (canGoNext) View.VISIBLE else View.GONE
-    }
-
-    private fun playPreviousEpisode() {
-        if (currentEpisode > 1) {
-            currentEpisode--
-            continuePlayback()
-        } else if (currentSeason > 1) {
-            currentSeason--
-            // Get episode count from cache or use cached data
-            val prevSeasonEpisodes = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
-            currentEpisode = maxOf(1, prevSeasonEpisodes)
-            continuePlayback()
-        }
-    }
-
-    private fun playNextEpisode() {
-        val currentSeasonMax = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
-        if (currentEpisode < currentSeasonMax) {
-            currentEpisode++
-        } else if (currentSeason < totalSeasons) {
-            currentSeason++
-            currentEpisode = 1
-        }
-        continuePlayback()
+        scrapeM3u8AndPlay(vidlinkUrl)
+        hideSystemUI()
     }
 
     @SuppressLint("SetTextI18n")
     private fun continuePlayback() {
         currentContent?.let { item ->
-            val streamUrl = "https://vidlink.pro/tv/${item.id}/$currentSeason/$currentEpisode?primaryColor=bb86fc&secondaryColor=03dac6&iconColor=ffffff&autoplay=true"
-            titleTextView.text = "${item.name} - S${currentSeason}E$currentEpisode"
-            updateNavigationButtons()
-            webView.loadUrl(streamUrl)
+            val vidlinkUrl = if (item.type == "tv") {
+                "https://vidlink.pro/tv/${item.id}/$currentSeason/$currentEpisode"
+            } else {
+                "https://vidlink.pro/movie/${item.id}"
+            }
+
+            playerLoadingIndicator.visibility = View.VISIBLE
+            exoPlayer.stop()
+            updateContentTitle()
+            updatePlayerControlsVisibility()
+            scrapeM3u8AndPlay(vidlinkUrl)
         }
     }
 
-    private fun toggleFullscreen() {
-        isFullscreen = !isFullscreen
-        if (isFullscreen) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            playerControls.visibility = View.GONE
-            hideSystemUI()
-        } else {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            playerControls.visibility = View.VISIBLE
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun scrapeM3u8AndPlay(url: String) {
+        foundM3u8Url = null
+        scraperLock.set(false)
+
+        scraperWebView.settings.javaScriptEnabled = true
+        scraperWebView.settings.domStorageEnabled = true
+        scraperWebView.settings.loadsImagesAutomatically = false
+
+        lifecycleScope.launch {
+            delay(30000)
+            if (foundM3u8Url == null && scraperLock.compareAndSet(false, true)) {
+                runOnUiThread {
+                    playerLoadingIndicator.visibility = View.GONE
+                    Toast.makeText(this@MainActivity, "Failed to load stream", Toast.LENGTH_SHORT).show()
+                    closePlayer()
+                }
+            }
+        }
+
+        scraperWebView.loadUrl(url)
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun playM3u8WithExoPlayer(m3u8Url: String) {
+        runOnUiThread {
+            playerLoadingIndicator.visibility = View.GONE
+
+            val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
+                setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                setDefaultRequestProperties(mapOf(
+                    "Accept" to "*/*",
+                    "Accept-Language" to "en-US,en;q=0.9",
+                    "Origin" to "https://vidlink.pro",
+                    "Referer" to "https://vidlink.pro/"
+                ))
+            }
+
+            val hlsMediaSource = HlsMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(MediaItem.fromUri(m3u8Url))
+
+            exoPlayer.setMediaSource(hlsMediaSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
         }
     }
 
@@ -785,92 +2018,44 @@ class MainActivity : AppCompatActivity() {
 
     private fun closePlayer() {
         isPlayerVisible = false
-        isFullscreen = false
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         playerContainer.visibility = View.GONE
-        searchContainer.visibility = View.VISIBLE
-        webView.loadUrl("about:blank")
+        bottomNav.visibility = View.VISIBLE
+        exploreContainer.visibility = View.VISIBLE
+
+        exoPlayer.stop()
+        playerView.player = null
+        playerView.player = exoPlayer
+
+        scraperWebView.loadUrl("about:blank")
         showSystemUI()
     }
 
-    @SuppressLint("SetTextI18n")
-    private fun injectPlayerEnhancements() {
-        val js = """
-            (function() {
-                // Remove ads and popups
-                var adSelectors = [
-                    '[class*="ad"]', '[id*="ad"]', '[class*="popup"]', 
-                    '[class*="banner"]', '[class*="sponsor"]', 'iframe',
-                    '.ad-container', '.ad-wrapper', '.ads', '#ads'
-                ];
-                
-                adSelectors.forEach(function(selector) {
-                    try {
-                        var elements = document.querySelectorAll(selector);
-                        elements.forEach(function(el) { 
-                            if (!el.className.includes('player') && !el.className.includes('video')) {
-                                el.remove(); 
-                            }
-                        });
-                    } catch(e) {}
-                });
-                
-                // Prevent popups
-                window.open = function() { return null; };
-                document.addEventListener('click', function(e) {
-                    if (e.target.tagName === 'A' && !e.target.href.includes('vidlink')) {
-                        e.preventDefault();
-                    }
-                }, true);
-            })();
-        """.trimIndent()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            webView.evaluateJavascript(js, null)
-        } else {
-            @Suppress("DEPRECATION")
-            webView.loadUrl("javascript:$js")
-        }
-    }
-
-    // Helper extension function
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
-    // WebView Client with Ad Blocking
-    inner class AdBlockWebViewClient : WebViewClient() {
+    inner class M3u8ScraperWebViewClient : WebViewClient() {
         override fun shouldInterceptRequest(
             view: WebView?,
             request: WebResourceRequest?
         ): WebResourceResponse? {
             val url = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
 
-            // Block ad domains
             for (adDomain in adDomains) {
                 if (url.contains(adDomain, ignoreCase = true)) {
-                    return WebResourceResponse(
-                        "text/plain",
-                        "utf-8",
-                        java.io.ByteArrayInputStream("".toByteArray())
-                    )
+                    return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream("".toByteArray()))
                 }
             }
 
-            // Block common ad patterns
-            if (url.contains("/ad/", ignoreCase = true) ||
-                url.contains("/ads/", ignoreCase = true) ||
-                url.contains("/banner/", ignoreCase = true) ||
-                url.contains("/popup/", ignoreCase = true) ||
-                url.contains("googleads", ignoreCase = true) ||
-                url.contains("analytics", ignoreCase = true) ||
-                url.contains("tracking", ignoreCase = true) ||
-                url.contains("/click/", ignoreCase = true) ||
-                url.endsWith(".gif", ignoreCase = true) && url.contains("ad", ignoreCase = true)
-            ) {
-                return WebResourceResponse(
-                    "text/plain",
-                    "utf-8",
-                    java.io.ByteArrayInputStream("".toByteArray())
-                )
+            if (url.contains(".m3u8", ignoreCase = true)) {
+                if (url.contains("MTA4MA", ignoreCase = true) ||
+                    url.contains("1080", ignoreCase = true) ||
+                    url.contains("master", ignoreCase = true)) {
+
+                    if (foundM3u8Url == null && scraperLock.compareAndSet(false, true)) {
+                        foundM3u8Url = url
+                        playM3u8WithExoPlayer(url)
+                    }
+                }
             }
 
             return super.shouldInterceptRequest(view, request)
@@ -879,7 +2064,6 @@ class MainActivity : AppCompatActivity() {
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
             val url = request?.url?.toString() ?: return false
 
-            // Block redirects to ad domains
             for (adDomain in adDomains) {
                 if (url.contains(adDomain, ignoreCase = true)) {
                     return true
@@ -888,99 +2072,322 @@ class MainActivity : AppCompatActivity() {
 
             return false
         }
+    }
 
-        override fun onPageFinished(view: WebView?, url: String?) {
-            super.onPageFinished(view, url)
-            injectPlayerEnhancements()
+    // DiffUtil callback for ContentItem
+    class ContentDiffCallback : DiffUtil.ItemCallback<ContentItem>() {
+        override fun areItemsTheSame(oldItem: ContentItem, newItem: ContentItem): Boolean {
+            return oldItem.id == newItem.id && oldItem.type == newItem.type
+        }
+
+        override fun areContentsTheSame(oldItem: ContentItem, newItem: ContentItem): Boolean {
+            return oldItem == newItem
         }
     }
 
-    // Content Adapter
-    inner class ContentAdapter(private val onItemClick: (ContentItem) -> Unit) :
-        RecyclerView.Adapter<ContentViewHolder>() {
+    // Search Overlay Adapter - compact card design
+    inner class SearchOverlayAdapter(private val onItemClick: (ContentItem) -> Unit) :
+        ListAdapter<ContentItem, SearchOverlayViewHolder>(ContentDiffCallback()) {
 
-        private var items = listOf<ContentItem>()
-
-        fun submitList(newItems: List<ContentItem>) {
-            items = newItems
-            notifyDataSetChanged()
-        }
-
-        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): ContentViewHolder {
+        @SuppressLint("SetTextI18n")
+        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): SearchOverlayViewHolder {
             val card = MaterialCardView(parent.context).apply {
                 radius = 12.dp().toFloat()
-                setCardBackgroundColor(Color.parseColor("#1A1A1A"))
+                setCardBackgroundColor("#1A1A1A".toColorInt())
+                cardElevation = 0f
+                rippleColor = ColorStateList.valueOf("#33f472a1".toColorInt())
                 layoutParams = RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT,
                     RecyclerView.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 8.dp(), 0, 8.dp())
-                }
-                useCompatPadding = true
+                )
             }
 
             val container = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
             }
 
-            // Poster image
+            // Poster with rounded corners - HALF SIZE (50x70)
             val poster = AppCompatImageView(parent.context).apply {
-                layoutParams = LinearLayout.LayoutParams(80.dp(), 120.dp())
-                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                setBackgroundColor(Color.parseColor("#2A2A2A"))
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = LinearLayout.LayoutParams(50.dp(), 70.dp())
+                setBackgroundColor("#2A2A2A".toColorInt())
             }
+
+            // Apply rounded corners programmatically
+            poster.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, 8.dp().toFloat())
+                }
+            }
+            poster.clipToOutline = true
+
             container.addView(poster)
 
             // Info container
             val infoContainer = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(16.dp(), 0, 16.dp(), 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    1f
-                )
+                setPadding(10.dp(), 0.dp(), 8.dp(), 0.dp())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
             // Title
             val title = TextView(parent.context).apply {
                 setTextColor(Color.WHITE)
-                textSize = 16f
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
                 setLines(2)
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             infoContainer.addView(title)
 
-            // Type badge
+            // Rating badge - same style as explore page
+            val ratingBadge = TextView(parent.context).apply {
+                setTextColor("#FFD700".toColorInt())
+                textSize = 10f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(6.dp(), 3.dp(), 6.dp(), 3.dp())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 6.dp().toFloat()
+                    setColor("#CC000000".toColorInt())
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 4.dp()
+                }
+            }
+            infoContainer.addView(ratingBadge)
+
+            // Genres
+            val genres = TextView(parent.context).apply {
+                setTextColor("#888888".toColorInt())
+                textSize = 11f
+                setLines(1)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 2.dp()
+                }
+            }
+            infoContainer.addView(genres)
+
+            // Content type badge (pink)
             val typeBadge = TextView(parent.context).apply {
-                setTextColor(Color.parseColor("#BB86FC"))
-                textSize = 12f
-                setPadding(0, 8.dp(), 0, 0)
+                setTextColor("#f472a1".toColorInt())
+                textSize = 10f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 2.dp()
+                }
             }
             infoContainer.addView(typeBadge)
 
             container.addView(infoContainer)
+
+            // Right arrow
+            val arrow = TextView(parent.context).apply {
+                text = "›"
+                setTextColor("#f472a1".toColorInt())
+                textSize = 20f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            container.addView(arrow)
+
             card.addView(container)
 
-            card.setOnClickListener {
-                val position = parent.indexOfChild(card)
-                if (position != -1 && position < items.size) {
-                    onItemClick(items[position])
+            return SearchOverlayViewHolder(card, poster, title, ratingBadge, genres, typeBadge)
+        }
+
+        @SuppressLint("SetTextI18n")
+        override fun onBindViewHolder(holder: SearchOverlayViewHolder, position: Int) {
+            val item = getItem(position)
+
+            holder.title.text = item.name
+
+            // Rating badge
+            if (item.voteAverage > 0) {
+                holder.ratingBadge.text = "★ ${String.format(java.util.Locale.US, "%.1f", item.voteAverage)}"
+                holder.ratingBadge.visibility = View.VISIBLE
+            } else {
+                holder.ratingBadge.visibility = View.GONE
+            }
+
+            // Genres - use MainViewModel function
+            val genreNames = MainViewModel.getGenreNames(item.genreIds, item.type)
+            if (genreNames.isNotEmpty()) {
+                holder.genres.text = genreNames.joinToString(", ")
+                holder.genres.visibility = View.VISIBLE
+            } else {
+                holder.genres.visibility = View.GONE
+            }
+
+            // Content type (pink)
+            holder.typeBadge.text = if (item.type == "tv") "TV Show" else "Movie"
+
+            holder.itemView.setOnClickListener { onItemClick(item) }
+
+            // Load poster
+            if (!item.posterUrl.isNullOrEmpty()) {
+                Glide.with(holder.poster.context)
+                    .load(item.posterUrl)
+                    .transition(DrawableTransitionOptions.withCrossFade(150))
+                    .placeholder(R.drawable.placeholder_poster)
+                    .error(R.drawable.placeholder_poster)
+                    .centerCrop()
+                    .into(holder.poster)
+            } else {
+                holder.poster.setImageResource(R.drawable.placeholder_poster)
+            }
+        }
+    }
+
+    class SearchOverlayViewHolder(
+        itemView: View,
+        val poster: AppCompatImageView,
+        val title: TextView,
+        val ratingBadge: TextView,
+        val genres: TextView,
+        val typeBadge: TextView
+    ) : RecyclerView.ViewHolder(itemView)
+
+    // Horizontal Content Adapter for explore sections
+    inner class HorizontalContentAdapter(
+        private val items: List<ContentItem>,
+        private val onItemClick: (ContentItem) -> Unit
+    ) : RecyclerView.Adapter<HorizontalContentViewHolder>() {
+
+        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): HorizontalContentViewHolder {
+            val outerContainer = LinearLayout(parent.context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = RecyclerView.LayoutParams(130.dp(), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = 12.dp()
                 }
             }
 
-            return ContentViewHolder(card, poster, title, typeBadge)
+            val card = MaterialCardView(parent.context).apply {
+                radius = 12.dp().toFloat()
+                setCardBackgroundColor("#1A1A1A".toColorInt())
+                cardElevation = 0f
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    180.dp()
+                )
+            }
+
+            val container = FrameLayout(parent.context).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+
+            val poster = AppCompatImageView(parent.context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor("#2A2A2A".toColorInt())
+            }
+            container.addView(poster)
+
+            val ratingBadge = TextView(parent.context).apply {
+                setTextColor("#FFD700".toColorInt())
+                textSize = 10f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(8.dp(), 4.dp(), 8.dp(), 4.dp())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8.dp().toFloat()
+                    setColor("#CC000000".toColorInt())
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.END
+                    topMargin = 6.dp()
+                    marginEnd = 6.dp()
+                }
+                visibility = View.GONE
+            }
+            container.addView(ratingBadge)
+
+            val typeBadge = TextView(parent.context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 9f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(8.dp(), 4.dp(), 8.dp(), 4.dp())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8.dp().toFloat()
+                    setColor("#CC000000".toColorInt())
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                    topMargin = 6.dp()
+                    marginStart = 6.dp()
+                }
+            }
+            container.addView(typeBadge)
+
+            card.addView(container)
+            outerContainer.addView(card)
+
+            val titleText = TextView(parent.context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setLines(2)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, 6.dp(), 0, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            outerContainer.addView(titleText)
+
+            return HorizontalContentViewHolder(outerContainer, poster, titleText, ratingBadge, typeBadge)
         }
 
-        override fun onBindViewHolder(holder: ContentViewHolder, position: Int) {
+        override fun onBindViewHolder(holder: HorizontalContentViewHolder, position: Int) {
             val item = items[position]
+            holder.titleText.text = item.name
 
-            holder.title.text = item.name
-            holder.typeBadge.text = item.type.uppercase()
+            holder.typeBadge.text = if (item.type == "tv") "TV" else "Movie"
+            holder.typeBadge.visibility = View.VISIBLE
 
-            // Load poster with Glide
+            if (item.voteAverage > 0) {
+                holder.ratingBadge.text = "★ ${String.format(java.util.Locale.US, "%.1f", item.voteAverage)}"
+                holder.ratingBadge.visibility = View.VISIBLE
+            } else {
+                holder.ratingBadge.visibility = View.GONE
+            }
+
             if (!item.posterUrl.isNullOrEmpty()) {
                 Glide.with(holder.poster.context)
                     .load(item.posterUrl)
@@ -992,21 +2399,145 @@ class MainActivity : AppCompatActivity() {
             } else {
                 holder.poster.setImageResource(R.drawable.placeholder_poster)
             }
+
+            holder.outerContainer.setOnClickListener { onItemClick(item) }
         }
 
         override fun getItemCount() = items.size
     }
 
-    inner class ContentViewHolder(
-        val card: MaterialCardView,
-        val poster: AppCompatImageView,
-        val title: TextView,
+    // Carousel Adapter
+    inner class CarouselAdapter(
+        private val items: List<ContentItem>,
+        private val onItemClick: (ContentItem) -> Unit
+    ) : RecyclerView.Adapter<CarouselViewHolder>() {
+
+        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): CarouselViewHolder {
+            val frameLayout = FrameLayout(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.MATCH_PARENT
+                )
+            }
+
+            val imageView = AppCompatImageView(parent.context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            frameLayout.addView(imageView)
+
+            val gradientOverlay = View(parent.context).apply {
+                setBackgroundColor("#30000000".toColorInt())
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            frameLayout.addView(gradientOverlay)
+
+            val bottomGradient = View(parent.context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.TRANSPARENT, "#CC000000".toColorInt())
+                )
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    120.dp()
+                ).apply {
+                    gravity = android.view.Gravity.BOTTOM
+                }
+            }
+            frameLayout.addView(bottomGradient)
+
+            val titleContainer = LinearLayout(parent.context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = android.view.Gravity.BOTTOM
+                }
+            }
+
+            val titleText = TextView(parent.context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 18f
+                setLines(2)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(16.dp(), 12.dp(), 16.dp(), 4.dp())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            titleContainer.addView(titleText)
+
+            val typeBadge = TextView(parent.context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 10f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(10.dp(), 4.dp(), 10.dp(), 4.dp())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8.dp().toFloat()
+                    setColor("#CC000000".toColorInt())
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = 16.dp()
+                    bottomMargin = 36.dp()
+                }
+            }
+            titleContainer.addView(typeBadge)
+
+            frameLayout.addView(titleContainer)
+
+            return CarouselViewHolder(frameLayout, imageView, titleText, typeBadge)
+        }
+
+        override fun onBindViewHolder(holder: CarouselViewHolder, position: Int) {
+            val item = items[position]
+            holder.titleText.text = item.name
+
+            holder.typeBadge.text = if (item.type == "tv") "TV Series" else "Movie"
+
+            if (!item.backdropUrl.isNullOrEmpty()) {
+                Glide.with(holder.imageView.context)
+                    .load(item.backdropUrl)
+                    .centerCrop()
+                    .into(holder.imageView)
+            }
+
+            holder.frameLayout.setOnClickListener { onItemClick(item) }
+        }
+
+        override fun getItemCount() = items.size
+    }
+
+    class CarouselViewHolder(
+        val frameLayout: FrameLayout,
+        val imageView: AppCompatImageView,
+        val titleText: TextView,
         val typeBadge: TextView
-    ) : RecyclerView.ViewHolder(card)
+    ) : RecyclerView.ViewHolder(frameLayout)
+
+    class HorizontalContentViewHolder(
+        val outerContainer: LinearLayout,
+        val poster: AppCompatImageView,
+        val titleText: TextView,
+        val ratingBadge: TextView,
+        val typeBadge: TextView
+    ) : RecyclerView.ViewHolder(outerContainer)
 
     override fun onDestroy() {
-        rotationAnimator?.cancel()
-        webView.destroy()
         super.onDestroy()
+        exoPlayer.release()
+        carouselTimer?.cancel()
     }
 }

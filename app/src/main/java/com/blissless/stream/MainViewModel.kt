@@ -12,9 +12,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -22,46 +19,133 @@ import java.net.URL
 import java.net.URLEncoder
 import javax.net.ssl.HttpsURLConnection
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    // TMDB API Configuration
     companion object {
         private const val TMDB_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2YjgxNTQxNDAwYTNjYmNiMmU4MWMyY2ZmYWViYTNjNSIsIm5iZiI6MTc1NTk2MzY5NC42ODYsInN1YiI6IjY4YTllMTJlOWJmNGUzMTRmMzc4MTk3ZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.TlYw-j9GEaylcyVhawE5ZexOr8p5nFVvLZSMtIRXFD8"
         private const val TMDB_BASE_URL = "https://api.themoviedb.org/3"
         private const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
+        private const val BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w780"
         private const val DEBOUNCE_DELAY = 500L
+
+        // Genre ID to name mapping
+        private val movieGenreMap = mapOf(
+            28 to "Action",
+            12 to "Adventure",
+            16 to "Animation",
+            35 to "Comedy",
+            80 to "Crime",
+            99 to "Documentary",
+            18 to "Drama",
+            10751 to "Family",
+            14 to "Fantasy",
+            36 to "History",
+            27 to "Horror",
+            10402 to "Music",
+            9648 to "Mystery",
+            10749 to "Romance",
+            878 to "Sci-Fi",
+            10770 to "TV Movie",
+            53 to "Thriller",
+            10752 to "War",
+            37 to "Western"
+        )
+
+        private val tvGenreMap = mapOf(
+            10759 to "Action & Adventure",
+            16 to "Animation",
+            35 to "Comedy",
+            80 to "Crime",
+            99 to "Documentary",
+            18 to "Drama",
+            10751 to "Family",
+            10762 to "Kids",
+            9648 to "Mystery",
+            10763 to "News",
+            10764 to "Reality",
+            10765 to "Sci-Fi & Fantasy",
+            10766 to "Soap",
+            10767 to "Talk",
+            10768 to "War & Politics",
+            37 to "Western"
+        )
+
+        fun getGenreNames(genreIds: List<Int>, mediaType: String): List<String> {
+            val genreMap = if (mediaType == "tv") tvGenreMap else movieGenreMap
+            return genreIds.mapNotNull { genreMap[it] }.take(3)
+        }
+
+        // Genre IDs for movies
+        const val GENRE_ACTION = 28
+        const val GENRE_COMEDY = 35
+        const val GENRE_HORROR = 27
+        const val GENRE_SCIFI = 878
+        const val GENRE_ANIMATION = 16
+        const val GENRE_THRILLER = 53
+        const val GENRE_FANTASY = 14
+        const val GENRE_CRIME = 80
     }
 
     // State Flows
-    private val _searchQuery = MutableStateFlow("")
     private val _searchResults = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _seasonInfo = MutableStateFlow<Pair<Int, Int>>(Pair(0, 0))
 
+    // Explore State Flows
+    private val _trending = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _popularMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _popularTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _topRatedMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _nowPlaying = MutableStateFlow<List<ContentItem>>(emptyList())
+
+    // Genre-specific State Flows
+    private val _actionMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _comedyMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _horrorMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _sciFiMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _animationMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _thrillerMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _fantasyMovies = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _topRatedTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _crimeTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
+
     // Public State Flows
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     val searchResults: StateFlow<List<ContentItem>> = _searchResults.asStateFlow()
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     val error: StateFlow<String?> = _error.asStateFlow()
     val seasonInfo: StateFlow<Pair<Int, Int>> = _seasonInfo.asStateFlow()
 
-    // Search job for cancellation
+    // Explore Public State Flows
+    val trending: StateFlow<List<ContentItem>> = _trending.asStateFlow()
+    val popularMovies: StateFlow<List<ContentItem>> = _popularMovies.asStateFlow()
+    val popularTVShows: StateFlow<List<ContentItem>> = _popularTVShows.asStateFlow()
+    val topRatedMovies: StateFlow<List<ContentItem>> = _topRatedMovies.asStateFlow()
+    val nowPlaying: StateFlow<List<ContentItem>> = _nowPlaying.asStateFlow()
+
+    // Genre-specific Public State Flows
+    val actionMovies: StateFlow<List<ContentItem>> = _actionMovies.asStateFlow()
+    val comedyMovies: StateFlow<List<ContentItem>> = _comedyMovies.asStateFlow()
+    val horrorMovies: StateFlow<List<ContentItem>> = _horrorMovies.asStateFlow()
+    val sciFiMovies: StateFlow<List<ContentItem>> = _sciFiMovies.asStateFlow()
+    val animationMovies: StateFlow<List<ContentItem>> = _animationMovies.asStateFlow()
+    val thrillerMovies: StateFlow<List<ContentItem>> = _thrillerMovies.asStateFlow()
+    val fantasyMovies: StateFlow<List<ContentItem>> = _fantasyMovies.asStateFlow()
+    val topRatedTVShows: StateFlow<List<ContentItem>> = _topRatedTVShows.asStateFlow()
+    val crimeTVShows: StateFlow<List<ContentItem>> = _crimeTVShows.asStateFlow()
+
     private var searchJob: Job? = null
-
-    // Episode cache: "seriesId-seasonNumber" -> episodeCount
     private val episodeCache = mutableMapOf<String, Int>()
-
-    // Season cache: seriesId -> Map<seasonNumber, episodeCount>
     private val seasonCache = mutableMapOf<Int, Map<Int, Int>>()
+    private val contentDetailsCache = mutableMapOf<String, ContentDetails>()
+
+    // For debounced search
+    private val searchTrigger = MutableStateFlow("")
 
     init {
-        setupDebouncedSearch()
-    }
-
-    private fun setupDebouncedSearch() {
         viewModelScope.launch {
-            _searchQuery
+            searchTrigger
                 .debounce(DEBOUNCE_DELAY)
                 .filter { it.length >= 2 }
                 .distinctUntilChanged()
@@ -72,7 +156,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun searchContent(query: String) {
-        _searchQuery.value = query
+        searchTrigger.value = query
     }
 
     private fun performSearch(query: String) {
@@ -128,20 +212,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val item = resultsArray.getJSONObject(i)
             val mediaType = item.optString("media_type")
 
-            // Skip person results
             if (mediaType == "person") continue
 
             val name = item.optString("title").ifEmpty { item.optString("name") }
             val id = item.optInt("id")
             val posterPath = item.optString("poster_path")
+            val backdropPath = item.optString("backdrop_path")
             val posterUrl = if (posterPath.isNotEmpty()) "$IMAGE_BASE_URL$posterPath" else null
+            val backdropUrl = if (backdropPath.isNotEmpty()) "$BACKDROP_BASE_URL$backdropPath" else null
+            val voteAverage = item.optDouble("vote_average", 0.0)
+
+            // Parse genre IDs
+            val genreIdsArray = item.optJSONArray("genre_ids")
+            val genreIds = mutableListOf<Int>()
+            genreIdsArray?.let {
+                for (j in 0 until it.length()) {
+                    genreIds.add(it.getInt(j))
+                }
+            }
 
             results.add(
                 ContentItem(
                     id = id,
                     name = name,
                     type = mediaType,
-                    posterUrl = posterUrl
+                    posterUrl = posterUrl,
+                    backdropUrl = backdropUrl,
+                    voteAverage = voteAverage,
+                    genreIds = genreIds
                 )
             )
         }
@@ -149,21 +247,347 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return results
     }
 
-    fun getStreamUrl(contentItem: ContentItem, season: Int = 1, episode: Int = 1): String {
-        return when (contentItem.type) {
-            "movie" -> "https://vidlink.pro/movie/${contentItem.id}"
-            "tv" -> "https://vidlink.pro/tv/${contentItem.id}/$season/$episode"
-            else -> ""
+    // ========== CONTENT DETAILS ==========
+
+    suspend fun getContentDetails(contentItem: ContentItem): ContentDetails? = withContext(Dispatchers.IO) {
+        val cacheKey = "${contentItem.type}-${contentItem.id}"
+        contentDetailsCache[cacheKey]?.let { return@withContext it }
+
+        val endpoint = if (contentItem.type == "movie") "movie/${contentItem.id}" else "tv/${contentItem.id}"
+        val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US")
+
+        val connection = url.openConnection() as HttpsURLConnection
+        connection.apply {
+            requestMethod = "GET"
+            setRequestProperty("accept", "application/json")
+            setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
+            connectTimeout = 10000
+            readTimeout = 10000
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode != HttpsURLConnection.HTTP_OK) {
+                return@withContext null
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            val details = parseContentDetails(response, contentItem.type)
+            if (details != null) {
+                contentDetailsCache[cacheKey] = details
+            }
+            details
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
         }
     }
 
-    /**
-     * Returns a map of season number to episode count for all seasons.
-     * Only includes seasons that have episodes available (episode_count > 0).
-     * This handles cases like "Wednesday" where season 3 exists but has 0 episodes.
-     */
+    private fun parseContentDetails(jsonResponse: String, mediaType: String): ContentDetails? {
+        return try {
+            val json = JSONObject(jsonResponse)
+
+            val title = json.optString("title").ifEmpty { json.optString("name") }
+            val overview = json.optString("overview", "No description available.")
+            val posterPath = json.optString("poster_path")
+            val backdropPath = json.optString("backdrop_path")
+            val voteAverage = json.optDouble("vote_average", 0.0)
+            val voteCount = json.optInt("vote_count", 0)
+
+            // Parse genres
+            val genresArray = json.optJSONArray("genres")
+            val genres = mutableListOf<String>()
+            genresArray?.let {
+                for (i in 0 until it.length()) {
+                    val genreObj = it.getJSONObject(i)
+                    genres.add(genreObj.optString("name"))
+                }
+            }
+
+            // Parse release date
+            val releaseDate = json.optString("release_date").ifEmpty { json.optString("first_air_date", "") }
+
+            // Parse runtime
+            val runtime = if (mediaType == "movie") {
+                json.optInt("runtime", 0)
+            } else {
+                json.optInt("episode_run_time", 0).let {
+                    val runTimes = json.optJSONArray("episode_run_time")
+                    if (runTimes != null && runTimes.length() > 0) runTimes.getInt(0) else 0
+                }
+            }
+
+            // TV-specific fields
+            val numberOfSeasons = if (mediaType == "tv") json.optInt("number_of_seasons", 1) else 1
+            val numberOfEpisodes = if (mediaType == "tv") json.optInt("number_of_episodes", 1) else 1
+            val status = json.optString("status", "")
+
+            val tagline = json.optString("tagline", "")
+
+            ContentDetails(
+                id = json.optInt("id"),
+                title = title,
+                overview = overview,
+                posterUrl = if (posterPath.isNotEmpty()) "$IMAGE_BASE_URL$posterPath" else null,
+                backdropUrl = if (backdropPath.isNotEmpty()) "$BACKDROP_BASE_URL$backdropPath" else null,
+                voteAverage = voteAverage,
+                voteCount = voteCount,
+                genres = genres,
+                releaseDate = releaseDate,
+                runtime = runtime,
+                numberOfSeasons = numberOfSeasons,
+                numberOfEpisodes = numberOfEpisodes,
+                status = status,
+                tagline = tagline,
+                type = mediaType
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ========== EXPLORE METHODS ==========
+
+    fun loadTrending() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("trending/all/week")
+                _trending.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load trending: ${e.message}"
+            }
+        }
+    }
+
+    fun loadPopularMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("movie/popular", "movie")
+                _popularMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load popular movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadPopularTVShows() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("tv/popular", "tv")
+                _popularTVShows.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load popular TV shows: ${e.message}"
+            }
+        }
+    }
+
+    fun loadTopRatedMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("movie/top_rated", "movie")
+                _topRatedMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load top rated: ${e.message}"
+            }
+        }
+    }
+
+    fun loadNowPlaying() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("movie/now_playing", "movie", page = 1)
+                _nowPlaying.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load now playing: ${e.message}"
+            }
+        }
+    }
+
+    // ========== GENRE-SPECIFIC METHODS ==========
+
+    fun loadActionMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_ACTION, "movie")
+                _actionMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load action movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadComedyMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_COMEDY, "movie")
+                _comedyMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load comedy movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadHorrorMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_HORROR, "movie")
+                _horrorMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load horror movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadSciFiMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_SCIFI, "movie")
+                _sciFiMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load sci-fi movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadAnimationMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_ANIMATION, "movie")
+                _animationMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load animation: ${e.message}"
+            }
+        }
+    }
+
+    fun loadThrillerMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_THRILLER, "movie")
+                _thrillerMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load thriller movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadFantasyMovies() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/movie", GENRE_FANTASY, "movie")
+                _fantasyMovies.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load fantasy movies: ${e.message}"
+            }
+        }
+    }
+
+    fun loadTopRatedTVShows() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDB("tv/top_rated", "tv")
+                _topRatedTVShows.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load top rated TV shows: ${e.message}"
+            }
+        }
+    }
+
+    fun loadCrimeTVShows() {
+        viewModelScope.launch {
+            try {
+                val results = fetchFromTMDBWithGenre("discover/tv", GENRE_CRIME, "tv")
+                _crimeTVShows.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load crime TV shows: ${e.message}"
+            }
+        }
+    }
+
+    private suspend fun fetchFromTMDB(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> = withContext(Dispatchers.IO) {
+        val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US&page=$page")
+
+        val connection = url.openConnection() as HttpsURLConnection
+        connection.apply {
+            requestMethod = "GET"
+            setRequestProperty("accept", "application/json")
+            setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
+            connectTimeout = 10000
+            readTimeout = 10000
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode != HttpsURLConnection.HTTP_OK) {
+                return@withContext emptyList()
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            parseContentResults(response, forceMediaType)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private suspend fun fetchFromTMDBWithGenre(endpoint: String, genreId: Int, mediaType: String): List<ContentItem> = withContext(Dispatchers.IO) {
+        val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US&page=1&with_genres=$genreId&sort_by=popularity.desc")
+
+        val connection = url.openConnection() as HttpsURLConnection
+        connection.apply {
+            requestMethod = "GET"
+            setRequestProperty("accept", "application/json")
+            setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
+            connectTimeout = 10000
+            readTimeout = 10000
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode != HttpsURLConnection.HTTP_OK) {
+                return@withContext emptyList()
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            parseContentResults(response, mediaType)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun parseContentResults(jsonResponse: String, forceMediaType: String? = null): List<ContentItem> {
+        val results = mutableListOf<ContentItem>()
+        val jsonObject = JSONObject(jsonResponse)
+        val resultsArray = jsonObject.optJSONArray("results") ?: return results
+
+        for (i in 0 until resultsArray.length()) {
+            val item = resultsArray.getJSONObject(i)
+
+            val mediaType = forceMediaType ?: item.optString("media_type", if (item.has("title")) "movie" else "tv")
+            val name = item.optString("title").ifEmpty { item.optString("name") }
+            val id = item.optInt("id")
+            val posterPath = item.optString("poster_path")
+            val backdropPath = item.optString("backdrop_path")
+            val posterUrl = if (posterPath.isNotEmpty()) "$IMAGE_BASE_URL$posterPath" else null
+            val backdropUrl = if (backdropPath.isNotEmpty()) "$BACKDROP_BASE_URL$backdropPath" else null
+            val voteAverage = item.optDouble("vote_average", 0.0)
+
+            results.add(
+                ContentItem(
+                    id = id,
+                    name = name,
+                    type = mediaType,
+                    posterUrl = posterUrl,
+                    backdropUrl = backdropUrl,
+                    voteAverage = voteAverage
+                )
+            )
+        }
+
+        return results
+    }
+
     suspend fun getSeasonInfoWithEpisodes(seriesId: Int): Map<Int, Int> = withContext(Dispatchers.IO) {
-        // Check cache first
         seasonCache[seriesId]?.let { return@withContext it }
 
         val url = URL("$TMDB_BASE_URL/tv/$seriesId")
@@ -180,13 +604,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val responseCode = connection.responseCode
             if (responseCode != HttpsURLConnection.HTTP_OK) {
-                return@withContext emptyMap<Int, Int>()
+                return@withContext emptyMap()
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val jsonObject = JSONObject(response)
 
-            val seasonsArray = jsonObject.optJSONArray("seasons") ?: return@withContext emptyMap<Int, Int>()
+            val seasonsArray = jsonObject.optJSONArray("seasons") ?: return@withContext emptyMap()
             val seasonEpisodeMap = mutableMapOf<Int, Int>()
 
             for (i in 0 until seasonsArray.length()) {
@@ -194,90 +618,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val seasonNumber = seasonObj.optInt("season_number")
                 val episodeCount = seasonObj.optInt("episode_count")
 
-                // Only include seasons with actual episodes
-                // Also skip season 0 (specials) unless it has episodes
                 if (episodeCount > 0 && seasonNumber > 0) {
                     seasonEpisodeMap[seasonNumber] = episodeCount
-                    // Also cache individual season data
                     episodeCache["$seriesId-$seasonNumber"] = episodeCount
                 }
             }
 
-            // Cache the result
             seasonCache[seriesId] = seasonEpisodeMap
 
-            // Update the old seasonInfo flow for backward compatibility
             val totalSeasons = seasonEpisodeMap.keys.maxOrNull() ?: 0
             val totalEpisodes = seasonEpisodeMap.values.sum()
             _seasonInfo.value = Pair(totalSeasons, totalEpisodes)
 
             seasonEpisodeMap
-        } catch (e: Exception) {
-            emptyMap<Int, Int>()
+        } catch (_: Exception) {
+            emptyMap()
         } finally {
             connection.disconnect()
         }
-    }
-
-    suspend fun getSeasonInfo(seriesId: Int): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        val seasonData = getSeasonInfoWithEpisodes(seriesId)
-        if (seasonData.isEmpty()) {
-            Pair(0, 0)
-        } else {
-            Pair(
-                seasonData.keys.maxOrNull() ?: 0,
-                seasonData.values.sum()
-            )
-        }
-    }
-
-    suspend fun getEpisodesForSeason(seriesId: Int, seasonNumber: Int): Int {
-        // Check cache first
-        val cacheKey = "$seriesId-$seasonNumber"
-        episodeCache[cacheKey]?.let { return it }
-
-        // Also check the season cache
-        seasonCache[seriesId]?.get(seasonNumber)?.let { return it }
-
-        // If not in cache, fetch from API
-        return withContext(Dispatchers.IO) {
-            val url = URL("$TMDB_BASE_URL/tv/$seriesId/season/$seasonNumber")
-
-            val connection = url.openConnection() as HttpsURLConnection
-            connection.apply {
-                requestMethod = "GET"
-                setRequestProperty("accept", "application/json")
-                setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
-                connectTimeout = 10000
-                readTimeout = 10000
-            }
-
-            try {
-                val responseCode = connection.responseCode
-                if (responseCode != HttpsURLConnection.HTTP_OK) {
-                    return@withContext 0
-                }
-
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val jsonObject = JSONObject(response)
-
-                val episodesArray = jsonObject.optJSONArray("episodes")
-                val episodeCount = episodesArray?.length() ?: 0
-
-                // Cache the result
-                episodeCache[cacheKey] = episodeCount
-
-                episodeCount
-            } catch (e: Exception) {
-                0
-            } finally {
-                connection.disconnect()
-            }
-        }
-    }
-
-    fun clearError() {
-        _error.value = null
     }
 
     override fun onCleared() {
@@ -286,10 +644,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-// Data model for content items
 data class ContentItem(
     val id: Int,
     val name: String,
-    val type: String, // "movie" or "tv"
-    val posterUrl: String?
+    val type: String,
+    val posterUrl: String?,
+    val backdropUrl: String? = null,
+    val voteAverage: Double = 0.0,
+    val genreIds: List<Int> = emptyList()
+)
+
+data class ContentDetails(
+    val id: Int,
+    val title: String,
+    val overview: String,
+    val posterUrl: String?,
+    val backdropUrl: String?,
+    val voteAverage: Double,
+    val voteCount: Int,
+    val genres: List<String>,
+    val releaseDate: String,
+    val runtime: Int,
+    val numberOfSeasons: Int,
+    val numberOfEpisodes: Int,
+    val status: String,
+    val tagline: String,
+    val type: String
 )
