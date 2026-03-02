@@ -127,12 +127,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var overlayContainer: FrameLayout
     private lateinit var btnResize: ImageButton
     private lateinit var contentTitleText: TextView
-    private lateinit var skipIndicatorLeft: TextView
-    private lateinit var skipIndicatorRight: TextView
 
-    // ExoPlayer custom controls
-    private var btnPlayerPrevious: ImageButton? = null
-    private var btnPlayerNext: ImageButton? = null
+    // Episode navigation buttons
+    private lateinit var btnPlayerPrevious: ImageButton
+    private lateinit var btnPlayerNext: ImageButton
 
     // Gesture detection
     private lateinit var gestureDetector: GestureDetector
@@ -215,6 +213,10 @@ class MainActivity : AppCompatActivity() {
 
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             overlayContainer.visibility = visibility
+            // Re-apply button states when controls become visible
+            if (visibility == View.VISIBLE) {
+                updatePlayerControlsVisibility()
+            }
         })
 
         playerView.post {
@@ -224,66 +226,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupCustomPlayerControls(playerView: PlayerView) {
-        val exoNextBtn = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_next)
-        val exoPrevBtn = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_prev)
-
-        exoNextBtn?.let { btn ->
-            if (btn is ImageButton) {
-                btn.setColorFilter(Color.WHITE)
-                btn.imageAlpha = 255
-            }
-            btn.visibility = View.VISIBLE
-            btn.setOnClickListener { playNextEpisode() }
-        }
-
-        exoPrevBtn?.let { btn ->
-            if (btn is ImageButton) {
-                btn.setColorFilter(Color.WHITE)
-                btn.imageAlpha = 255
-            }
-            btn.visibility = View.VISIBLE
-            btn.setOnClickListener { playPreviousEpisode() }
-        }
-
-        btnPlayerNext = exoNextBtn as? ImageButton
-        btnPlayerPrevious = exoPrevBtn as? ImageButton
-
-        updatePlayerControlsVisibility()
+        // Hide ExoPlayer's default next/prev buttons (they're controlled by playlist state)
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_next)?.visibility = View.GONE
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_prev)?.visibility = View.GONE
     }
 
     private fun updatePlayerControlsVisibility() {
-        currentContent?.let { item ->
-            if (item.type == "tv") {
-                val currentSeasonMax = if (seasonEpisodeCounts.isNotEmpty()) {
-                    seasonEpisodeCounts[currentSeason] ?: totalEpisodes
-                } else {
-                    totalEpisodes
-                }
+        val content = currentContent
+        if (content == null) {
+            btnPlayerPrevious.visibility = View.GONE
+            btnPlayerNext.visibility = View.GONE
+            return
+        }
 
-                val canGoPrevious = currentSeason > 1 || currentEpisode > 1
-                val canGoNext = if (seasonEpisodeCounts.isNotEmpty()) {
-                    currentEpisode < currentSeasonMax || currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)
-                } else {
-                    true
-                }
-
-                btnPlayerPrevious?.let { btn ->
-                    btn.visibility = View.VISIBLE
-                    btn.imageAlpha = if (canGoPrevious) 255 else 100
-                    btn.isEnabled = canGoPrevious
-                    btn.setColorFilter(Color.WHITE)
-                }
-
-                btnPlayerNext?.let { btn ->
-                    btn.visibility = View.VISIBLE
-                    btn.imageAlpha = if (canGoNext) 255 else 100
-                    btn.isEnabled = canGoNext
-                    btn.setColorFilter(Color.WHITE)
-                }
+        if (content.type == "tv") {
+            val currentSeasonMax = if (seasonEpisodeCounts.isNotEmpty()) {
+                seasonEpisodeCounts[currentSeason] ?: totalEpisodes
             } else {
-                btnPlayerPrevious?.visibility = View.GONE
-                btnPlayerNext?.visibility = View.GONE
+                totalEpisodes
             }
+
+            val canGoPrevious = currentSeason > 1 || currentEpisode > 1
+            val canGoNext = if (seasonEpisodeCounts.isNotEmpty()) {
+                currentEpisode < currentSeasonMax || currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)
+            } else {
+                true
+            }
+
+            btnPlayerPrevious.apply {
+                visibility = View.VISIBLE
+                imageAlpha = if (canGoPrevious) 255 else 100
+                isEnabled = canGoPrevious
+                setColorFilter(Color.WHITE)
+            }
+
+            btnPlayerNext.apply {
+                visibility = View.VISIBLE
+                imageAlpha = if (canGoNext) 255 else 100
+                isEnabled = canGoNext
+                setColorFilter(Color.WHITE)
+            }
+        } else {
+            btnPlayerPrevious.visibility = View.GONE
+            btnPlayerNext.visibility = View.GONE
         }
     }
 
@@ -300,51 +285,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupGestureDetector() {
-        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                val screenWidth = playerView.width
-                val tapX = e.x
-
-                if (tapX < screenWidth / 2) {
-                    skipBackward()
-                } else {
-                    skipForward()
-                }
-                return true
-            }
-        })
-    }
-
-    private fun skipForward() {
-        val ms = 15000L
-        val newPosition = exoPlayer.currentPosition + ms
-        exoPlayer.seekTo(newPosition)
-        showSkipIndicator(right = true, ms)
-    }
-
-    private fun skipBackward() {
-        val ms = 5000L
-        val newPosition = maxOf(0, exoPlayer.currentPosition - ms)
-        exoPlayer.seekTo(newPosition)
-        showSkipIndicator(right = false, ms)
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun showSkipIndicator(right: Boolean, ms: Long) {
-        val seconds = ms / 1000
-        if (right) {
-            skipIndicatorRight.text = "+${seconds}s"
-            skipIndicatorRight.visibility = View.VISIBLE
-            Handler(Looper.getMainLooper()).postDelayed({
-                skipIndicatorRight.visibility = View.GONE
-            }, 500)
-        } else {
-            skipIndicatorLeft.text = "-${seconds}s"
-            skipIndicatorLeft.visibility = View.VISIBLE
-            Handler(Looper.getMainLooper()).postDelayed({
-                skipIndicatorLeft.visibility = View.GONE
-            }, 500)
-        }
+        // Gesture detector for potential future use
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {})
     }
 
     private fun playNextEpisodeAuto() {
@@ -628,7 +570,7 @@ class MainActivity : AppCompatActivity() {
         overlayContainer.addView(contentTitleText)
 
         btnResize = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_crop)
+            setImageResource(android.R.drawable.ic_menu_zoom)
             setColorFilter(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
@@ -641,37 +583,34 @@ class MainActivity : AppCompatActivity() {
         }
         overlayContainer.addView(btnResize)
 
-        skipIndicatorLeft = TextView(this).apply {
-            text = "-5s"
-            setTextColor(Color.WHITE)
-            textSize = 24f
-            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
-            setBackgroundColor("#80000000".toColorInt())
+        // Episode navigation buttons (centered, no background)
+        btnPlayerPrevious = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_skip_previous)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
             visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
+            layoutParams = FrameLayout.LayoutParams(48.dp(), 48.dp()).apply {
                 gravity = android.view.Gravity.CENTER
+                marginEnd = 100.dp()
             }
+            setOnClickListener { playPreviousEpisode() }
         }
-        overlayContainer.addView(skipIndicatorLeft)
+        overlayContainer.addView(btnPlayerPrevious)
 
-        skipIndicatorRight = TextView(this).apply {
-            text = "+15s"
-            setTextColor(Color.WHITE)
-            textSize = 24f
-            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
-            setBackgroundColor("#80000000".toColorInt())
+        btnPlayerNext = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_skip_next)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
             visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
+            layoutParams = FrameLayout.LayoutParams(48.dp(), 48.dp()).apply {
                 gravity = android.view.Gravity.CENTER
+                marginStart = 100.dp()
             }
+            setOnClickListener { playNextEpisode() }
         }
-        overlayContainer.addView(skipIndicatorRight)
+        overlayContainer.addView(btnPlayerNext)
 
         playerContainer.addView(overlayContainer)
 
@@ -1044,13 +983,21 @@ class MainActivity : AppCompatActivity() {
         currentContent?.let { item ->
             if (item.type == "tv") {
                 val currentSeasonMax = seasonEpisodeCounts[currentSeason] ?: totalEpisodes
+                val maxSeason = seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons
+
                 if (currentEpisode < currentSeasonMax) {
+                    // More episodes in current season
                     currentEpisode++
                     continuePlayback()
-                } else if (currentSeason < (seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons)) {
+                } else if (currentSeason < maxSeason) {
+                    // Move to next season
                     currentSeason++
                     currentEpisode = 1
                     totalEpisodes = seasonEpisodeCounts[currentSeason] ?: 1
+                    continuePlayback()
+                } else if (seasonEpisodeCounts.isEmpty()) {
+                    // Season data not loaded yet, try next episode anyway
+                    currentEpisode++
                     continuePlayback()
                 }
             }
@@ -1431,23 +1378,24 @@ class MainActivity : AppCompatActivity() {
             setLines(2)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
         textContainer.addView(titleTextView)
 
-        // Type badge - aligned with title
+        // Type badge - aligned with title text
         val typeTextView = TextView(this).apply {
             text = if (item.type == "tv") "TV Series" else "Movie"
             setTextColor(Color.WHITE)
             textSize = 11f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(12.dp(), 6.dp(), 12.dp(), 6.dp())
+            setPadding(0, 4.dp(), 8.dp(), 4.dp())
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8.dp().toFloat()
+                cornerRadius = 6.dp().toFloat()
                 setColor("#CC000000".toColorInt())
             }
             layoutParams = LinearLayout.LayoutParams(
@@ -1463,6 +1411,13 @@ class MainActivity : AppCompatActivity() {
             text = "Loading..."
             setTextColor("#888888".toColorInt())
             textSize = 14f
+            setPadding(0, 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 4.dp()
+            }
         }
         textContainer.addView(ratingTextView)
 
@@ -1471,6 +1426,10 @@ class MainActivity : AppCompatActivity() {
             setTextColor("#888888".toColorInt())
             textSize = 12f
             setPadding(0, 4.dp(), 0, 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         textContainer.addView(metaTextView)
 
@@ -1896,6 +1855,13 @@ class MainActivity : AppCompatActivity() {
         currentContent = item
         playerLoadingIndicator.visibility = View.VISIBLE
 
+        // Reset season/episode state for new content
+        currentSeason = 1
+        currentEpisode = 1
+        totalSeasons = 1
+        totalEpisodes = 1
+        seasonEpisodeCounts = emptyMap()
+
         updateContentTitle()
 
         val vidlinkUrl = if (item.type == "tv") {
@@ -1907,12 +1873,13 @@ class MainActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         setupTouchListener()
 
-        if (item.type == "tv" && seasonEpisodeCounts.isEmpty()) {
+        if (item.type == "tv") {
             lifecycleScope.launch {
                 val seasonData = viewModel.getSeasonInfoWithEpisodes(item.id)
                 if (seasonData.isNotEmpty()) {
                     seasonEpisodeCounts = seasonData
                     totalSeasons = seasonData.keys.maxOrNull() ?: 1
+                    totalEpisodes = seasonData[currentSeason] ?: 1
                     runOnUiThread {
                         updatePlayerControlsVisibility()
                     }

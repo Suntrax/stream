@@ -36,11 +36,12 @@ A modern Android streaming application for discovering and watching movies and T
 
 | Explore Page | Search Results | Content Details |
 |:------------:|:--------------:|:---------------:|
-| *Trending carousel with categories* | *Compact search cards* | *Full content information* |
+| ![Explore](screenshots/explore.png) | ![Search](screenshots/search.png) | ![Details](screenshots/details.png) |
+
 
 | Episode Selector | Video Player |
 |:---------------:|:------------:|
-| *Season and episode picker* | *ExoPlayer with controls* |
+| ![Episodes](screenshots/episodes.png) | ![Player](screenshots/player.png) |
 
 ## 🛠️ Tech Stack
 
