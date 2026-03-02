@@ -52,31 +52,6 @@ A modern Android streaming application for discovering and watching movies and T
 - **Video Player:** ExoPlayer (Media3)
 - **UI Components:** Material Design Components
 
-## 📦 Dependencies
-
-```gradle
-// AndroidX
-implementation 'androidx.core:core-ktx:1.12.0'
-implementation 'androidx.appcompat:appcompat:1.6.1'
-implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
-implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
-
-// Material Design
-implementation 'com.google.android.material:material:1.11.0'
-
-// ExoPlayer
-implementation 'androidx.media3:media3-exoplayer:1.2.1'
-implementation 'androidx.media3:media3-ui:1.2.1'
-implementation 'androidx.media3:media3-exoplayer-hls:1.2.1'
-
-// Image Loading
-implementation 'com.github.bumptech.glide:glide:4.16.0'
-
-// Coroutines
-implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
-```
-
 ## 🔑 API Configuration
 
 This app uses the TMDB API for content discovery. To run the app:
@@ -102,7 +77,7 @@ git clone https://github.com/YOUR_USERNAME/blissless-stream.git
 
 3. Add your TMDB API key
 
-4. Build and run on device/emulator (API 21+)
+4. Build and run on device/emulator (API 28+)
 
 ## 📂 Project Structure
 
@@ -112,8 +87,6 @@ app/
 │   ├── java/com/blissless/stream/
 │   │   ├── MainActivity.kt       # Main UI and adapters
 │   │   ├── MainViewModel.kt      # Business logic and API calls
-│   │   ├── ContentItem.kt        # Data models (in MainViewModel)
-│   │   └── ContentDetails.kt     # Detailed content model
 │   ├── res/
 │   │   ├── drawable/             # Icons and backgrounds
 │   │   ├── values/               # Colors, strings, themes
@@ -168,4 +141,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 
 Made with ❤️ by Blissless
+
 
