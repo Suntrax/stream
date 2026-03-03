@@ -17,6 +17,15 @@ import android.view.ViewOutlineProvider
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -128,6 +137,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnResize: ImageButton
     private lateinit var contentTitleText: TextView
 
+    // Skip indicators
+    private lateinit var skipIndicatorLeft: TextView
+    private lateinit var skipIndicatorRight: TextView
+
     // Episode navigation buttons
     private lateinit var btnPlayerPrevious: ImageButton
     private lateinit var btnPlayerNext: ImageButton
@@ -187,13 +200,31 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createUI()
-        setupFullscreenMode()
+        // Removed setupFullscreenMode() - no longer auto-hide status bar on app start
         setupObservers()
         setupBackHandler()
         initializePlayer()
         setupGestureDetector()
         setupNavigation()
         loadExploreContent()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // Handle double-tap gesture when player is visible
+        if (isPlayerVisible) {
+            val location = IntArray(2)
+            playerView.getLocationOnScreen(location)
+            val x = ev.rawX
+            val y = ev.rawY
+
+            if (x >= location[0] && x <= location[0] + playerView.width &&
+                y >= location[1] && y <= location[1] + playerView.height) {
+                if (gestureDetector.onTouchEvent(ev)) {
+                    return true
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     @OptIn(UnstableApi::class)
@@ -285,8 +316,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupGestureDetector() {
-        // Gesture detector for potential future use
-        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {})
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                // Get player view center
+                val location = IntArray(2)
+                playerView.getLocationOnScreen(location)
+                val playerCenterX = location[0] + playerView.width / 2
+                val tapX = e.rawX
+
+                if (tapX < playerCenterX) {
+                    skipBackward(5000)
+                } else {
+                    skipForward(15000)
+                }
+                return true
+            }
+        })
+    }
+
+    private fun skipForward(ms: Long) {
+        val newPosition = exoPlayer.currentPosition + ms
+        exoPlayer.seekTo(newPosition)
+        showSkipIndicator(right = true, ms)
+    }
+
+    private fun skipBackward(ms: Long) {
+        val newPosition = maxOf(0, exoPlayer.currentPosition - ms)
+        exoPlayer.seekTo(newPosition)
+        showSkipIndicator(right = false, ms)
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showSkipIndicator(right: Boolean, ms: Long) {
+        val seconds = ms / 1000
+        if (right) {
+            skipIndicatorRight.text = "+${seconds}s"
+            skipIndicatorRight.visibility = View.VISIBLE
+            Handler(Looper.getMainLooper()).postDelayed({
+                skipIndicatorRight.visibility = View.GONE
+            }, 500)
+        } else {
+            skipIndicatorLeft.text = "-${seconds}s"
+            skipIndicatorLeft.visibility = View.VISIBLE
+            Handler(Looper.getMainLooper()).postDelayed({
+                skipIndicatorLeft.visibility = View.GONE
+            }, 500)
+        }
     }
 
     private fun playNextEpisodeAuto() {
@@ -312,26 +387,6 @@ class MainActivity : AppCompatActivity() {
         val (mode, name) = resizeModes[currentResizeMode]
         playerView.resizeMode = mode
         Toast.makeText(this, name, Toast.LENGTH_SHORT).show()
-    }
-
-    @SuppressLint("InternalInsetResource", "DiscouragedApi")
-    private fun setupFullscreenMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.apply {
-                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsets.Type.systemBars())
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.apply {
-                statusBarColor = Color.BLACK
-                navigationBarColor = Color.BLACK
-                setFlags(
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                )
-            }
-        }
     }
 
     @SuppressLint("InternalInsetResource", "DiscouragedApi")
@@ -583,6 +638,40 @@ class MainActivity : AppCompatActivity() {
         }
         overlayContainer.addView(btnResize)
 
+        // Skip indicator - Left
+        skipIndicatorLeft = TextView(this).apply {
+            text = "-5s"
+            setTextColor(Color.WHITE)
+            textSize = 24f
+            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
+            setBackgroundColor(Color.parseColor("#80000000"))
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        overlayContainer.addView(skipIndicatorLeft)
+
+        // Skip indicator - Right
+        skipIndicatorRight = TextView(this).apply {
+            text = "+15s"
+            setTextColor(Color.WHITE)
+            textSize = 24f
+            setPadding(32.dp(), 16.dp(), 32.dp(), 16.dp())
+            setBackgroundColor(Color.parseColor("#80000000"))
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+            }
+        }
+        overlayContainer.addView(skipIndicatorRight)
+
         // Episode navigation buttons (centered, no background)
         btnPlayerPrevious = ImageButton(this).apply {
             setImageResource(R.drawable.ic_skip_previous)
@@ -747,6 +836,8 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             visibility = View.GONE
+            isClickable = true // Consume all touch events, prevent click-through
+            isFocusable = true
         }
 
         val container = LinearLayout(this).apply {
@@ -756,6 +847,7 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
+            isClickable = true // Prevent click-through to underlying content
         }
 
         // Search bar card
@@ -766,6 +858,7 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            isClickable = true
         }
 
         val searchBarContainer = LinearLayout(this).apply {
@@ -830,7 +923,6 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             searchOverlayAdapter = SearchOverlayAdapter { item ->
                 onContentClicked(item)
-                hideSearchOverlay()
             }
             adapter = searchOverlayAdapter
             layoutParams = LinearLayout.LayoutParams(
@@ -850,6 +942,67 @@ class MainActivity : AppCompatActivity() {
                     outRect.set(0, 0, 0, 8.dp())
                 }
             })
+            // Add custom item animator for slide-in effect
+            itemAnimator = object : RecyclerView.ItemAnimator() {
+                override fun animateDisappearance(
+                    viewHolder: RecyclerView.ViewHolder,
+                    preLayoutInfo: ItemHolderInfo,
+                    postLayoutInfo: ItemHolderInfo?
+                ): Boolean {
+                    return false
+                }
+
+                override fun animateAppearance(
+                    viewHolder: RecyclerView.ViewHolder,
+                    preLayoutInfo: ItemHolderInfo?,
+                    postLayoutInfo: ItemHolderInfo
+                ): Boolean {
+                    // Slide in from right
+                    viewHolder.itemView.translationX = 100f
+                    viewHolder.itemView.alpha = 0f
+                    viewHolder.itemView.animate()
+                        .translationX(0f)
+                        .alpha(1f)
+                        .setDuration(200)
+                        .setInterpolator(DecelerateInterpolator(1.2f))
+                        .setListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                dispatchAnimationFinished(viewHolder)
+                            }
+                        })
+                        .start()
+                    return true
+                }
+
+                override fun animatePersistence(
+                    viewHolder: RecyclerView.ViewHolder,
+                    preLayoutInfo: ItemHolderInfo,
+                    postLayoutInfo: ItemHolderInfo
+                ): Boolean {
+                    return false
+                }
+
+                override fun animateChange(
+                    oldHolder: RecyclerView.ViewHolder,
+                    newHolder: RecyclerView.ViewHolder,
+                    preLayoutInfo: ItemHolderInfo,
+                    postLayoutInfo: ItemHolderInfo
+                ): Boolean {
+                    return false
+                }
+
+                override fun runPendingAnimations() {}
+
+                override fun endAnimation(item: RecyclerView.ViewHolder) {
+                    item.itemView.animate().cancel()
+                }
+
+                override fun endAnimations() {
+                    dispatchAnimationsFinished()
+                }
+
+                override fun isRunning(): Boolean = false
+            }
         }
         container.addView(searchOverlayResults)
 
@@ -874,7 +1027,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSearchOverlay() {
         isSearchOverlayVisible = true
+
+        // Set initial state for animation
+        searchOverlay?.alpha = 0f
+        searchOverlay?.translationY = -rootContainer.height.toFloat() * 0.1f
         searchOverlay?.visibility = View.VISIBLE
+
+        // Animate in - slide down and fade in
+        searchOverlay?.animate()
+            ?.translationY(0f)
+            ?.alpha(1f)
+            ?.setDuration(300)
+            ?.setInterpolator(DecelerateInterpolator(1.5f))
+            ?.start()
+
         searchOverlayEditText.requestFocus()
 
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -886,7 +1052,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideSearchOverlay() {
         isSearchOverlayVisible = false
-        searchOverlay?.visibility = View.GONE
+
+        // Animate out - slide up and fade out
+        searchOverlay?.animate()
+            ?.cancel() // Cancel any ongoing animation first
+        searchOverlay?.animate()
+            ?.translationY(-rootContainer.height.toFloat() * 0.1f)
+            ?.alpha(0f)
+            ?.setDuration(250)
+            ?.setInterpolator(AccelerateDecelerateInterpolator())
+            ?.setListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (!isSearchOverlayVisible) {
+                        searchOverlay?.visibility = View.GONE
+                        searchOverlay?.translationY = 0f
+                        searchOverlay?.alpha = 1f
+                    }
+                }
+            })
+            ?.start()
+
         searchOverlayEditText.text?.clear()
         searchOverlayEditText.clearFocus()
 
@@ -952,14 +1137,6 @@ class MainActivity : AppCompatActivity() {
             viewModel.loadCrimeTVShows()
 
             exploreLoadingIndicator.visibility = View.GONE
-        }
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun setupTouchListener() {
-        playerView.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            false
         }
     }
 
@@ -1279,6 +1456,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onContentClicked(item: ContentItem) {
+        // Properly hide search overlay first
+        if (isSearchOverlayVisible) {
+            searchOverlay?.visibility = View.GONE
+            searchOverlay?.alpha = 1f
+            searchOverlay?.translationY = 0f
+            isSearchOverlayVisible = false
+            currentNavPage = 0
+            updateNavSelection()
+        }
+
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchOverlayEditText.windowToken, 0)
         searchOverlayEditText.clearFocus()
@@ -1363,6 +1550,13 @@ class MainActivity : AppCompatActivity() {
                 marginEnd = 16.dp()
             }
             setBackgroundColor("#2A2A2A".toColorInt())
+            // Add rounded corners
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, 12.dp().toFloat())
+                }
+            }
         }
         infoSection.addView(posterImageView)
 
@@ -1531,7 +1725,77 @@ class MainActivity : AppCompatActivity() {
         }
         detailsDialogView?.addView(closeButton)
 
+        // Add view with initial state for animation
+        detailsDialogView?.alpha = 0f
+        detailsDialogView?.translationY = rootContainer.height.toFloat()
         rootContainer.addView(detailsDialogView)
+
+        // Animate in - slide up and fade in
+        detailsDialogView?.animate()
+            ?.translationY(0f)
+            ?.alpha(1f)
+            ?.setDuration(300)
+            ?.setInterpolator(DecelerateInterpolator(1.5f))
+            ?.start()
+
+        // Add swipe-down gesture to close - works from top of the dialog
+        var startY = 0f
+        var isDragging = false
+        val touchListener = View.OnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaY = event.rawY - startY
+                    if (deltaY > 10) {
+                        isDragging = true
+                        // Request disallow intercept to prevent scroll view from taking over
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        detailsDialogView?.translationY = deltaY
+                        // Only start fading after 300px of swipe
+                        val alphaProgress = ((deltaY - 300f) / 400f).coerceIn(0f, 1f)
+                        detailsDialogView?.alpha = 1f - alphaProgress
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDragging) {
+                        val deltaY = event.rawY - startY
+                        if (deltaY > 250) {
+                            hideDetailsDialog()
+                        } else {
+                            detailsDialogView?.animate()
+                                ?.translationY(0f)
+                                ?.alpha(1f)
+                                ?.setDuration(200)
+                                ?.setInterpolator(DecelerateInterpolator())
+                                ?.start()
+                        }
+                    }
+                    isDragging = false
+                    true
+                }
+                else -> false
+            }
+        }
+        // Apply to backdrop container
+        backdropContainer.setOnTouchListener(touchListener)
+        // Also apply to the outer container for swipe from anywhere when at top
+        detailsDialogView?.setOnTouchListener { v, event ->
+            // Only handle if touching near the top (status bar area) or if scroll is at top
+            val touchY = event.rawY
+            val statusBarHeight = getStatusBarHeight()
+            val isNearTop = touchY < statusBarHeight + 100
+
+            if (isNearTop) {
+                touchListener.onTouch(v, event)
+            } else {
+                false
+            }
+        }
 
         lifecycleScope.launch {
             val details = viewModel.getContentDetails(item)
@@ -1654,10 +1918,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideDetailsDialog() {
         isDetailsVisible = false
-        detailsDialogView?.let {
-            rootContainer.removeView(it)
+        detailsDialogView?.let { dialogView ->
+            // Animate out - slide down and fade out
+            dialogView.animate()
+                .translationY(rootContainer.height.toFloat())
+                .alpha(0f)
+                .setDuration(250)
+                .setInterpolator(AccelerateDecelerateInterpolator())
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        rootContainer.removeView(dialogView)
+                        detailsDialogView = null
+                    }
+                })
+                .start()
+        } ?: run {
+            detailsDialogView = null
         }
-        detailsDialogView = null
     }
 
     @SuppressLint("SetTextI18n")
@@ -1871,7 +2148,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-        setupTouchListener()
 
         if (item.type == "tv") {
             lifecycleScope.launch {
@@ -2079,20 +2355,19 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            // Poster with rounded corners - HALF SIZE (50x70)
+            // Poster with rounded corners
             val poster = AppCompatImageView(parent.context).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 layoutParams = LinearLayout.LayoutParams(50.dp(), 70.dp())
                 setBackgroundColor("#2A2A2A".toColorInt())
-            }
-
-            // Apply rounded corners programmatically
-            poster.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, 8.dp().toFloat())
+                // Apply rounded corners programmatically
+                outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, 8.dp().toFloat())
+                    }
                 }
+                clipToOutline = true
             }
-            poster.clipToOutline = true
 
             container.addView(poster)
 

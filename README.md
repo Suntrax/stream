@@ -1,6 +1,6 @@
 <div align="center">
-    
-Stream
+
+# Stream
 
 A modern Android streaming application for discovering and watching movies and TV shows. Built with Kotlin and powered by TMDB API for content discovery.
 
@@ -29,15 +29,20 @@ A modern Android streaming application for discovering and watching movies and T
 ### 🎨 Modern UI
 - **Dark Theme** - Sleek dark interface optimized for viewing
 - **Card-based Design** - Clean Material Design components
-- **Smooth Animations** - Crossfade transitions and fluid scrolling
+- **Smooth Animations** - Slide-up dialogs, fade transitions, and fluid scrolling
+- **Swipe Gestures** - Swipe down on backdrop to close description dialog
 - **Responsive Indicators** - Real-time carousel position updates
+
+### ⚡ Performance
+- **TMDB Caching** - 10-minute cache for API responses to reduce network calls
+- **Efficient Image Loading** - Glide with crossfade transitions
+- **Coroutines & Flow** - Reactive data updates with efficient async handling
 
 ## 📱 Screenshots
 
 | Explore Page | Search Results | Content Details |
 |:------------:|:--------------:|:---------------:|
 | ![Explore](screenshots/explore.png) | ![Search](screenshots/search.png) | ![Details](screenshots/details.png) |
-
 
 | Episode Selector | Video Player |
 |:---------------:|:------------:|
@@ -58,12 +63,13 @@ A modern Android streaming application for discovering and watching movies and T
 This app uses the TMDB API for content discovery. To run the app:
 
 1. Get your API key from [TMDB](https://www.themoviedb.org/settings/api)
-2. Replace the API key in `MainViewModel.kt`:
+2. Add to your `build.gradle.kts` (app level):
 
 ```kotlin
-companion object {
-    private const val TMDB_API_KEY = "YOUR_API_KEY_HERE"
-    // ...
+android {
+    defaultConfig {
+        buildConfigField("String", "TMDB_API_KEY", "\"YOUR_API_KEY_HERE\"")
+    }
 }
 ```
 
@@ -76,7 +82,7 @@ git clone https://github.com/YOUR_USERNAME/blissless-stream.git
 
 2. Open in Android Studio
 
-3. Add your TMDB API key
+3. Add your TMDB API key in `build.gradle.kts`
 
 4. Build and run on device/emulator (API 28+)
 
@@ -103,15 +109,17 @@ app/
 - Handles navigation between Explore and Search
 - Manages video playback and player controls
 - Contains all RecyclerView adapters
+- Implements swipe gestures and animations
 
 ### MainViewModel
 - Manages content state with StateFlow
 - Handles API calls with coroutines
 - Implements debounced search
 - Caches content details and season info
+- 10-minute TMDB API response caching
 
 ### Adapters
-- `SearchOverlayAdapter` - Compact search result cards
+- `SearchOverlayAdapter` - Compact search result cards with slide-in animation
 - `HorizontalContentAdapter` - Explore section cards
 - `CarouselAdapter` - Featured content carousel
 
@@ -121,6 +129,7 @@ app/
 - No analytics tracking
 - Ad domain blocking for cleaner streaming experience
 - Network security configuration for secure connections
+- API key stored securely via BuildConfig
 
 ## 📄 License
 
@@ -140,7 +149,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-
 Made with ❤️ by Blissless
-
-

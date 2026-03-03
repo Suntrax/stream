@@ -23,11 +23,12 @@ import javax.net.ssl.HttpsURLConnection
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        private const val TMDB_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2YjgxNTQxNDAwYTNjYmNiMmU4MWMyY2ZmYWViYTNjNSIsIm5iZiI6MTc1NTk2MzY5NC42ODYsInN1YiI6IjY4YTllMTJlOWJmNGUzMTRmMzc4MTk3ZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.TlYw-j9GEaylcyVhawE5ZexOr8p5nFVvLZSMtIRXFD8"
+        private const val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
         private const val TMDB_BASE_URL = "https://api.themoviedb.org/3"
         private const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
         private const val BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w780"
         private const val DEBOUNCE_DELAY = 500L
+        private const val CACHE_DURATION_MS = 10 * 60 * 1000L // 10 minutes
 
         // Genre ID to name mapping
         private val movieGenreMap = mapOf(
@@ -140,8 +141,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val seasonCache = mutableMapOf<Int, Map<Int, Int>>()
     private val contentDetailsCache = mutableMapOf<String, ContentDetails>()
 
+    // Cache with timestamps for expiration
+    private data class CacheEntry<T>(val data: T, val timestamp: Long)
+    private val tmdbCache = mutableMapOf<String, CacheEntry<*>>()
+
     // For debounced search
     private val searchTrigger = MutableStateFlow("")
+
+    // Helper to check if cache is valid
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> getFromCache(key: String): T? {
+        val entry = tmdbCache[key] as? CacheEntry<T> ?: return null
+        val now = System.currentTimeMillis()
+        return if (now - entry.timestamp < CACHE_DURATION_MS) {
+            entry.data
+        } else {
+            tmdbCache.remove(key)
+            null
+        }
+    }
+
+    private fun <T> putInCache(key: String, data: T) {
+        tmdbCache[key] = CacheEntry(data, System.currentTimeMillis())
+    }
 
     init {
         viewModelScope.launch {
@@ -178,6 +200,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun searchTMDB(query: String): List<ContentItem> = withContext(Dispatchers.IO) {
+        // Check cache first
+        val cacheKey = "search_$query"
+        val cached: List<ContentItem>? = getFromCache(cacheKey)
+        if (cached != null) return@withContext cached
+
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val url = URL("$TMDB_BASE_URL/search/multi?query=$encodedQuery&include_adult=false&language=en-US&page=1")
 
@@ -197,7 +224,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
-            parseSearchResults(response)
+            val results = parseSearchResults(response)
+            // Cache the results
+            putInCache(cacheKey, results)
+            results
         } finally {
             connection.disconnect()
         }
@@ -506,6 +536,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetchFromTMDB(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> = withContext(Dispatchers.IO) {
+        // Check cache first
+        val cacheKey = "tmdb_${endpoint}_$page"
+        val cached: List<ContentItem>? = getFromCache(cacheKey)
+        if (cached != null) return@withContext cached
+
         val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US&page=$page")
 
         val connection = url.openConnection() as HttpsURLConnection
@@ -524,13 +559,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
-            parseContentResults(response, forceMediaType)
+            val results = parseContentResults(response, forceMediaType)
+            // Cache the results
+            putInCache(cacheKey, results)
+            results
         } finally {
             connection.disconnect()
         }
     }
 
     private suspend fun fetchFromTMDBWithGenre(endpoint: String, genreId: Int, mediaType: String): List<ContentItem> = withContext(Dispatchers.IO) {
+        // Check cache first
+        val cacheKey = "tmdb_${endpoint}_${genreId}"
+        val cached: List<ContentItem>? = getFromCache(cacheKey)
+        if (cached != null) return@withContext cached
+
         val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US&page=1&with_genres=$genreId&sort_by=popularity.desc")
 
         val connection = url.openConnection() as HttpsURLConnection
@@ -549,7 +592,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
-            parseContentResults(response, mediaType)
+            val results = parseContentResults(response, mediaType)
+            // Cache the results
+            putInCache(cacheKey, results)
+            results
         } finally {
             connection.disconnect()
         }
@@ -588,7 +634,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun getSeasonInfoWithEpisodes(seriesId: Int): Map<Int, Int> = withContext(Dispatchers.IO) {
-        seasonCache[seriesId]?.let { return@withContext it }
+        // Check cache first with expiration
+        val cacheKey = "season_$seriesId"
+        val cached: Map<Int, Int>? = getFromCache(cacheKey)
+        if (cached != null) return@withContext cached
 
         val url = URL("$TMDB_BASE_URL/tv/$seriesId")
 
@@ -624,6 +673,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            // Cache with expiration
+            putInCache(cacheKey, seasonEpisodeMap)
             seasonCache[seriesId] = seasonEpisodeMap
 
             val totalSeasons = seasonEpisodeMap.keys.maxOrNull() ?: 0

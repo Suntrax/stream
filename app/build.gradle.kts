@@ -1,5 +1,14 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
 }
 
 android {
@@ -10,23 +19,48 @@ android {
         applicationId = "com.blissless.stream"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 4
+        versionName = "2.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val TMDB_API_KEY = localProperties.getProperty("TMDB_API_KEY") ?: ""
+
+        // MUST BE INSIDE defaultConfig
+        buildConfigField("String", "TMDB_API_KEY", "\"$TMDB_API_KEY\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            // We use safe calls (?.) to prevent crashes if the file is missing on another developer's machine
+            val keystorePath = localProperties.getProperty("KEYSTORE_FILE")
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = localProperties.getProperty("KEYSTORE_PASSWORD")
+                keyAlias = localProperties.getProperty("KEY_ALIAS")
+                keyPassword = localProperties.getProperty("KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Apply the signing config
+            signingConfig = signingConfigs.getByName("release")
         }
-        debug {
-            isMinifyEnabled = false
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = true
         }
     }
 
@@ -37,6 +71,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 
