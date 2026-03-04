@@ -1939,6 +1939,29 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetTextI18n")
     private fun showSeasonEpisodeDialog(item: ContentItem, seasonData: Map<Int, Int>) {
+        // Create custom dialog view
+        val dialogContainer = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val dialogCard = MaterialCardView(this).apply {
+            radius = 16.dp().toFloat()
+            setCardBackgroundColor("#1A1A1A".toColorInt())
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.CENTER
+                marginEnd = 24.dp()
+                marginStart = 24.dp()
+            }
+            cardElevation = 8.dp().toFloat()
+        }
+
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24.dp(), 24.dp(), 24.dp(), 24.dp())
@@ -1954,6 +1977,24 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT
             )
         }
+
+        // Title
+        val titleText = TextView(this).apply {
+            text = item.name
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, 16.dp())
+        }
+        dialogView.addView(titleText)
+
+        // Season label
+        val seasonLabel = TextView(this).apply {
+            text = "Season"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+        }
+        dialogView.addView(seasonLabel)
 
         val seasonScrollView = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = true
@@ -1980,6 +2021,9 @@ class MainActivity : AppCompatActivity() {
                     marginEnd = 8.dp()
                 }
                 tag = seasonNum
+                // Initial state for animation
+                alpha = 0f
+                translationY = 20f
                 setOnClickListener { clickedView ->
                     val newSeason = (clickedView as MaterialCardView).tag as Int
                     if (newSeason != selectedSeason) {
@@ -2010,6 +2054,15 @@ class MainActivity : AppCompatActivity() {
             }
             seasonItems[seasonNum] = seasonCard
             seasonContainer.addView(seasonCard)
+            // Animate season cards with stagger
+            seasonCard.postDelayed({
+                seasonCard.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(200)
+                    .setInterpolator(DecelerateInterpolator(1.2f))
+                    .start()
+            }, index * 50L)
         }
         seasonScrollView.addView(seasonContainer)
         dialogView.addView(seasonScrollView)
@@ -2037,30 +2090,124 @@ class MainActivity : AppCompatActivity() {
         episodeScrollView.addView(episodeGridLayout)
         dialogView.addView(episodeScrollView)
 
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(item.name)
-            .setView(dialogView)
-            .setPositiveButton("Play") { _, _ ->
-                hideDetailsDialog()
-                currentSeason = selectedSeason
-                currentEpisode = selectedEpisode
-                totalEpisodes = seasonData[selectedSeason] ?: 1
-                playContent(item)
-            }
-            .setNegativeButton("Cancel", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawableResource(android.R.color.black)
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.let { btn ->
-                btn.setTextColor("#f472a1".toColorInt())
-            }
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.let { btn ->
-                btn.setTextColor("#f472a1".toColorInt())
-            }
+        // Buttons container
+        val buttonsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.END
+            setPadding(0, 16.dp(), 0, 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
 
-        dialog.show()
+        val cancelButton = TextView(this).apply {
+            text = "Cancel"
+            setTextColor("#f472a1".toColorInt())
+            textSize = 14f
+            setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
+            setOnClickListener {
+                // Animate out
+                dialogCard.animate()
+                    .scaleX(0.9f)
+                    .scaleY(0.9f)
+                    .alpha(0f)
+                    .setDuration(150)
+                    .setInterpolator(AccelerateDecelerateInterpolator())
+                    .start()
+                dialogContainer.animate()
+                    .alpha(0f)
+                    .setDuration(150)
+                    .setListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            rootContainer.removeView(dialogContainer)
+                        }
+                    })
+                    .start()
+            }
+        }
+        buttonsContainer.addView(cancelButton)
+
+        val playButton = TextView(this).apply {
+            text = "Play"
+            setTextColor("#f472a1".toColorInt())
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
+            setOnClickListener {
+                // Animate out first
+                dialogCard.animate()
+                    .scaleX(0.9f)
+                    .scaleY(0.9f)
+                    .alpha(0f)
+                    .setDuration(150)
+                    .setInterpolator(AccelerateDecelerateInterpolator())
+                    .start()
+                dialogContainer.animate()
+                    .alpha(0f)
+                    .setDuration(150)
+                    .setListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            rootContainer.removeView(dialogContainer)
+                            currentSeason = selectedSeason
+                            currentEpisode = selectedEpisode
+                            totalEpisodes = seasonData[selectedSeason] ?: 1
+                            hideDetailsDialog()
+                            playContent(item)
+                        }
+                    })
+                    .start()
+            }
+        }
+        buttonsContainer.addView(playButton)
+        dialogView.addView(buttonsContainer)
+
+        dialogCard.addView(dialogView)
+        dialogContainer.addView(dialogCard)
+
+        // Allow tapping outside to close
+        dialogContainer.setOnClickListener {
+            // Animate out
+            dialogCard.animate()
+                .scaleX(0.9f)
+                .scaleY(0.9f)
+                .alpha(0f)
+                .setDuration(150)
+                .setInterpolator(AccelerateDecelerateInterpolator())
+                .start()
+            dialogContainer.animate()
+                .alpha(0f)
+                .setDuration(150)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        rootContainer.removeView(dialogContainer)
+                    }
+                })
+                .start()
+        }
+
+        // Prevent click-through on dialog card
+        dialogCard.setOnClickListener { /* consume click */ }
+
+        // Add to root with initial state for animation
+        dialogContainer.alpha = 0f
+        dialogCard.scaleX = 0.9f
+        dialogCard.scaleY = 0.9f
+        dialogCard.alpha = 0f
+        rootContainer.addView(dialogContainer)
+
+        // Animate in
+        dialogContainer.animate()
+            .alpha(1f)
+            .setDuration(200)
+            .start()
+        dialogCard.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .alpha(1f)
+            .setDuration(250)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
     }
 
     private fun updateEpisodeSelector(
@@ -2095,6 +2242,10 @@ class MainActivity : AppCompatActivity() {
                     height = 48.dp()
                     setMargins(0, 0, 8.dp(), 8.dp())
                 }
+                // Initial state for animation
+                alpha = 0f
+                scaleX = 0.8f
+                scaleY = 0.8f
                 setOnClickListener {
                     onSelect(i)
                     episodeCards.forEach { (_, card) ->
@@ -2115,6 +2266,16 @@ class MainActivity : AppCompatActivity() {
             }
             episodeCards[i] = episodeCard
             container.addView(episodeCard)
+            // Animate episode cards with stagger
+            episodeCard.postDelayed({
+                episodeCard.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(150)
+                    .setInterpolator(OvershootInterpolator(1.2f))
+                    .start()
+            }, (i - 1) * 20L) // 20ms stagger per episode
         }
     }
 
@@ -2132,12 +2293,16 @@ class MainActivity : AppCompatActivity() {
         currentContent = item
         playerLoadingIndicator.visibility = View.VISIBLE
 
-        // Reset season/episode state for new content
-        currentSeason = 1
-        currentEpisode = 1
-        totalSeasons = 1
-        totalEpisodes = 1
-        seasonEpisodeCounts = emptyMap()
+        // Only reset season/episode state if not already set (for movies or direct play)
+        if (item.type == "movie") {
+            currentSeason = 1
+            currentEpisode = 1
+        }
+        // For TV shows, keep the already selected season/episode from the dialog
+        if (seasonEpisodeCounts.isEmpty()) {
+            totalSeasons = 1
+            totalEpisodes = 1
+        }
 
         updateContentTitle()
 
