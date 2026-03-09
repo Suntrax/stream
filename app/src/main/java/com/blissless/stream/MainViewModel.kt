@@ -30,7 +30,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val DEBOUNCE_DELAY = 500L
         private const val CACHE_DURATION_MS = 10 * 60 * 1000L // 10 minutes
 
-        // Genre ID to name mapping
         private val movieGenreMap = mapOf(
             28 to "Action",
             12 to "Adventure",
@@ -77,7 +76,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return genreIds.mapNotNull { genreMap[it] }.take(3)
         }
 
-        // Genre IDs for movies
         const val GENRE_ACTION = 28
         const val GENRE_COMEDY = 35
         const val GENRE_HORROR = 27
@@ -88,20 +86,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val GENRE_CRIME = 80
     }
 
-    // State Flows
     private val _searchResults = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
-    private val _seasonInfo = MutableStateFlow<Pair<Int, Int>>(Pair(0, 0))
+    private val _seasonInfo = MutableStateFlow(Pair(0, 0))
 
-    // Explore State Flows
     private val _trending = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _popularMovies = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _popularTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _topRatedMovies = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _nowPlaying = MutableStateFlow<List<ContentItem>>(emptyList())
 
-    // Genre-specific State Flows
     private val _actionMovies = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _comedyMovies = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _horrorMovies = MutableStateFlow<List<ContentItem>>(emptyList())
@@ -112,20 +107,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _topRatedTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _crimeTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
 
-    // Public State Flows
     val searchResults: StateFlow<List<ContentItem>> = _searchResults.asStateFlow()
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     val error: StateFlow<String?> = _error.asStateFlow()
     val seasonInfo: StateFlow<Pair<Int, Int>> = _seasonInfo.asStateFlow()
 
-    // Explore Public State Flows
     val trending: StateFlow<List<ContentItem>> = _trending.asStateFlow()
     val popularMovies: StateFlow<List<ContentItem>> = _popularMovies.asStateFlow()
     val popularTVShows: StateFlow<List<ContentItem>> = _popularTVShows.asStateFlow()
     val topRatedMovies: StateFlow<List<ContentItem>> = _topRatedMovies.asStateFlow()
     val nowPlaying: StateFlow<List<ContentItem>> = _nowPlaying.asStateFlow()
 
-    // Genre-specific Public State Flows
     val actionMovies: StateFlow<List<ContentItem>> = _actionMovies.asStateFlow()
     val comedyMovies: StateFlow<List<ContentItem>> = _comedyMovies.asStateFlow()
     val horrorMovies: StateFlow<List<ContentItem>> = _horrorMovies.asStateFlow()
@@ -141,14 +133,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val seasonCache = mutableMapOf<Int, Map<Int, Int>>()
     private val contentDetailsCache = mutableMapOf<String, ContentDetails>()
 
-    // Cache with timestamps for expiration
     private data class CacheEntry<T>(val data: T, val timestamp: Long)
     private val tmdbCache = mutableMapOf<String, CacheEntry<*>>()
 
-    // For debounced search
     private val searchTrigger = MutableStateFlow("")
 
-    // Helper to check if cache is valid
     @Suppress("UNCHECKED_CAST")
     private fun <T> getFromCache(key: String): T? {
         val entry = tmdbCache[key] as? CacheEntry<T> ?: return null
@@ -181,6 +170,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         searchTrigger.value = query
     }
 
+    /**
+     * Clears search results - called when opening search overlay
+     * to prevent previous results from appearing
+     */
+    fun clearSearchResults() {
+        _searchResults.value = emptyList()
+        _isLoading.value = false
+        _error.value = null
+    }
+
+    /**
+     * Clears the search trigger to prevent debounced searches from firing
+     */
+    fun clearSearchTrigger() {
+        searchTrigger.value = ""
+        searchJob?.cancel()
+    }
+
     private fun performSearch(query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
@@ -200,7 +207,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun searchTMDB(query: String): List<ContentItem> = withContext(Dispatchers.IO) {
-        // Check cache first
         val cacheKey = "search_$query"
         val cached: List<ContentItem>? = getFromCache(cacheKey)
         if (cached != null) return@withContext cached
@@ -225,7 +231,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val results = parseSearchResults(response)
-            // Cache the results
             putInCache(cacheKey, results)
             results
         } finally {
@@ -252,7 +257,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val backdropUrl = if (backdropPath.isNotEmpty()) "$BACKDROP_BASE_URL$backdropPath" else null
             val voteAverage = item.optDouble("vote_average", 0.0)
 
-            // Parse genre IDs
             val genreIdsArray = item.optJSONArray("genre_ids")
             val genreIds = mutableListOf<Int>()
             genreIdsArray?.let {
@@ -276,8 +280,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         return results
     }
-
-    // ========== CONTENT DETAILS ==========
 
     suspend fun getContentDetails(contentItem: ContentItem): ContentDetails? = withContext(Dispatchers.IO) {
         val cacheKey = "${contentItem.type}-${contentItem.id}"
@@ -325,7 +327,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val voteAverage = json.optDouble("vote_average", 0.0)
             val voteCount = json.optInt("vote_count", 0)
 
-            // Parse genres
             val genresArray = json.optJSONArray("genres")
             val genres = mutableListOf<String>()
             genresArray?.let {
@@ -335,10 +336,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // Parse release date
             val releaseDate = json.optString("release_date").ifEmpty { json.optString("first_air_date", "") }
 
-            // Parse runtime
             val runtime = if (mediaType == "movie") {
                 json.optInt("runtime", 0)
             } else {
@@ -348,7 +347,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // TV-specific fields
             val numberOfSeasons = if (mediaType == "tv") json.optInt("number_of_seasons", 1) else 1
             val numberOfEpisodes = if (mediaType == "tv") json.optInt("number_of_episodes", 1) else 1
             val status = json.optString("status", "")
@@ -376,8 +374,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             null
         }
     }
-
-    // ========== EXPLORE METHODS ==========
 
     fun loadTrending() {
         viewModelScope.launch {
@@ -433,8 +429,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
-    // ========== GENRE-SPECIFIC METHODS ==========
 
     fun loadActionMovies() {
         viewModelScope.launch {
@@ -536,7 +530,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetchFromTMDB(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> = withContext(Dispatchers.IO) {
-        // Check cache first
         val cacheKey = "tmdb_${endpoint}_$page"
         val cached: List<ContentItem>? = getFromCache(cacheKey)
         if (cached != null) return@withContext cached
@@ -560,7 +553,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val results = parseContentResults(response, forceMediaType)
-            // Cache the results
             putInCache(cacheKey, results)
             results
         } finally {
@@ -569,7 +561,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetchFromTMDBWithGenre(endpoint: String, genreId: Int, mediaType: String): List<ContentItem> = withContext(Dispatchers.IO) {
-        // Check cache first
         val cacheKey = "tmdb_${endpoint}_${genreId}"
         val cached: List<ContentItem>? = getFromCache(cacheKey)
         if (cached != null) return@withContext cached
@@ -593,7 +584,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val results = parseContentResults(response, mediaType)
-            // Cache the results
             putInCache(cacheKey, results)
             results
         } finally {
@@ -634,7 +624,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun getSeasonInfoWithEpisodes(seriesId: Int): Map<Int, Int> = withContext(Dispatchers.IO) {
-        // Check cache first with expiration
         val cacheKey = "season_$seriesId"
         val cached: Map<Int, Int>? = getFromCache(cacheKey)
         if (cached != null) return@withContext cached
@@ -673,7 +662,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // Cache with expiration
             putInCache(cacheKey, seasonEpisodeMap)
             seasonCache[seriesId] = seasonEpisodeMap
 

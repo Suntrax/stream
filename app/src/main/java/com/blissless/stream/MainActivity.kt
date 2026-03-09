@@ -16,16 +16,11 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.view.animation.Animation
-import android.view.animation.AnimationUtils
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -66,7 +61,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -83,7 +77,6 @@ class MainActivity : AppCompatActivity() {
 
     // UI Components - Main
     private lateinit var rootContainer: ConstraintLayout
-    private lateinit var mainContainer: FrameLayout
 
     // Navigation
     private lateinit var bottomNav: LinearLayout
@@ -141,9 +134,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var skipIndicatorLeft: TextView
     private lateinit var skipIndicatorRight: TextView
 
-    // Episode navigation buttons
-    private lateinit var btnPlayerPrevious: ImageButton
-    private lateinit var btnPlayerNext: ImageButton
+    // Episode navigation buttons (Injected into PlayerView)
+    private var btnPlayerPrevious: ImageButton? = null
+    private var btnPlayerNext: ImageButton? = null
 
     // Gesture detection
     private lateinit var gestureDetector: GestureDetector
@@ -178,6 +171,9 @@ class MainActivity : AppCompatActivity() {
     // Search debounce job
     private var searchOverlayJob: Job? = null
 
+    // Flag to prevent search results from appearing on overlay open
+    private var ignoreSearchResults = false
+
     // Carousel
     private var carouselTimer: Timer? = null
     private var currentCarouselPosition = 0
@@ -200,7 +196,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createUI()
-        // Removed setupFullscreenMode() - no longer auto-hide status bar on app start
         setupObservers()
         setupBackHandler()
         initializePlayer()
@@ -210,7 +205,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // Handle double-tap gesture when player is visible
         if (isPlayerVisible) {
             val location = IntArray(2)
             playerView.getLocationOnScreen(location)
@@ -244,7 +238,6 @@ class MainActivity : AppCompatActivity() {
 
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             overlayContainer.visibility = visibility
-            // Re-apply button states when controls become visible
             if (visibility == View.VISIBLE) {
                 updatePlayerControlsVisibility()
             }
@@ -257,16 +250,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupCustomPlayerControls(playerView: PlayerView) {
-        // Hide ExoPlayer's default next/prev buttons (they're controlled by playlist state)
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_next)?.visibility = View.GONE
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_prev)?.visibility = View.GONE
+        // 1. Hide the default Rewind (10s back) and Fast Forward (10s forward) buttons
+        // We use the "Prev/Next" buttons for Episode navigation instead.
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_rew)?.visibility = View.GONE
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_ffwd)?.visibility = View.GONE
+
+        // 2. Increase Play Button Size
+        val playButton = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+        playButton?.layoutParams = (playButton?.layoutParams as? android.widget.LinearLayout.LayoutParams)?.apply {
+            width = 72.dp()
+            height = 72.dp()
+        }
+
+        // 3. Find the Default "Prev" and "Next" buttons
+        // These are normally used for 'Skip to Start' or 'Skip to End', but we will use them for Episodes.
+        btnPlayerPrevious = playerView.findViewById(androidx.media3.ui.R.id.exo_prev)
+        btnPlayerNext = playerView.findViewById(androidx.media3.ui.R.id.exo_next)
+
+        // 4. Configure Previous Episode Button
+        btnPlayerPrevious?.apply {
+            // Remove default grey background/border
+            background = null
+            // Start hidden, will be shown by updatePlayerControlsVisibility() for TV shows
+            visibility = View.GONE
+            // Override default click with Episode logic
+            setOnClickListener { playPreviousEpisode() }
+        }
+
+        // 5. Configure Next Episode Button
+        btnPlayerNext?.apply {
+            // Remove default grey background/border
+            background = null
+            // Start hidden
+            visibility = View.GONE
+            // Override default click with Episode logic
+            setOnClickListener { playNextEpisode() }
+        }
     }
 
     private fun updatePlayerControlsVisibility() {
         val content = currentContent
         if (content == null) {
-            btnPlayerPrevious.visibility = View.GONE
-            btnPlayerNext.visibility = View.GONE
+            btnPlayerPrevious?.visibility = View.GONE
+            btnPlayerNext?.visibility = View.GONE
             return
         }
 
@@ -284,22 +310,50 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
-            btnPlayerPrevious.apply {
+            btnPlayerPrevious?.apply {
                 visibility = View.VISIBLE
-                imageAlpha = if (canGoPrevious) 255 else 100
-                isEnabled = canGoPrevious
+                background = null // Remove grey background/border
+
+                // Aggressively set visual state to Active
+                imageAlpha = 255
+                alpha = 1.0f
+
+                // Clear theme tints and force White color
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    imageTintList = null
+                }
                 setColorFilter(Color.WHITE)
+
+                isEnabled = canGoPrevious
+                if (!canGoPrevious) {
+                    imageAlpha = 100 // Visually dim if disabled
+                    setColorFilter(Color.GRAY)
+                }
             }
 
-            btnPlayerNext.apply {
+            btnPlayerNext?.apply {
                 visibility = View.VISIBLE
-                imageAlpha = if (canGoNext) 255 else 100
-                isEnabled = canGoNext
+                background = null // Remove grey background/border
+
+                // Aggressively set visual state to Active
+                imageAlpha = 255
+                alpha = 1.0f
+
+                // Clear theme tints and force White color
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    imageTintList = null
+                }
                 setColorFilter(Color.WHITE)
+
+                isEnabled = canGoNext
+                if (!canGoNext) {
+                    imageAlpha = 100 // Visually dim if disabled
+                    setColorFilter(Color.GRAY)
+                }
             }
         } else {
-            btnPlayerPrevious.visibility = View.GONE
-            btnPlayerNext.visibility = View.GONE
+            btnPlayerPrevious?.visibility = View.GONE
+            btnPlayerNext?.visibility = View.GONE
         }
     }
 
@@ -318,7 +372,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupGestureDetector() {
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                // Get player view center
                 val location = IntArray(2)
                 playerView.getLocationOnScreen(location)
                 val playerCenterX = location[0] + playerView.width / 2
@@ -442,16 +495,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        mainContainer = FrameLayout(this).apply {
-            layoutParams = ConstraintLayout.LayoutParams(
-                ConstraintLayout.LayoutParams.MATCH_PARENT,
-                0
-            ).apply {
-                topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-                bottomToTop = ConstraintLayout.LayoutParams.PARENT_ID
-            }
-        }
-
         // ========== EXPLORE PAGE ==========
         exploreContainer = ScrollView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -484,7 +527,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Background image for carousel with transition
         carouselBackground = AppCompatImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             layoutParams = FrameLayout.LayoutParams(
@@ -495,7 +537,6 @@ class MainActivity : AppCompatActivity() {
         }
         carouselContainer.addView(carouselBackground)
 
-        // Gradient overlay for background
         val carouselGradient = View(this).apply {
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -625,7 +666,7 @@ class MainActivity : AppCompatActivity() {
         overlayContainer.addView(contentTitleText)
 
         btnResize = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_zoom)
+            setImageResource(android.R.drawable.ic_menu_crop) // Built-in icon
             setColorFilter(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
@@ -638,7 +679,7 @@ class MainActivity : AppCompatActivity() {
         }
         overlayContainer.addView(btnResize)
 
-        // Skip indicator - Left
+        // Skip indicators
         skipIndicatorLeft = TextView(this).apply {
             text = "-5s"
             setTextColor(Color.WHITE)
@@ -650,12 +691,12 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                gravity = android.view.Gravity.CENTER
+                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+                marginStart = 48.dp()
             }
         }
         overlayContainer.addView(skipIndicatorLeft)
 
-        // Skip indicator - Right
         skipIndicatorRight = TextView(this).apply {
             text = "+15s"
             setTextColor(Color.WHITE)
@@ -667,39 +708,11 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                gravity = android.view.Gravity.CENTER
+                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.END
+                marginEnd = 48.dp()
             }
         }
         overlayContainer.addView(skipIndicatorRight)
-
-        // Episode navigation buttons (centered, no background)
-        btnPlayerPrevious = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_skip_previous)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
-            visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(48.dp(), 48.dp()).apply {
-                gravity = android.view.Gravity.CENTER
-                marginEnd = 100.dp()
-            }
-            setOnClickListener { playPreviousEpisode() }
-        }
-        overlayContainer.addView(btnPlayerPrevious)
-
-        btnPlayerNext = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_skip_next)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
-            visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(48.dp(), 48.dp()).apply {
-                gravity = android.view.Gravity.CENTER
-                marginStart = 100.dp()
-            }
-            setOnClickListener { playNextEpisode() }
-        }
-        overlayContainer.addView(btnPlayerNext)
 
         playerContainer.addView(overlayContainer)
 
@@ -751,7 +764,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         ivExplore = ImageView(this).apply {
-            setImageResource(R.drawable.ic_compass)
+            setImageResource(android.R.drawable.ic_menu_compass) // Built-in icon
             setColorFilter("#f472a1".toColorInt())
             layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp()).apply {
                 gravity = android.view.Gravity.CENTER
@@ -821,7 +834,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(rootContainer)
 
-        // Create search overlay
         createSearchOverlay()
     }
 
@@ -836,7 +848,7 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             visibility = View.GONE
-            isClickable = true // Consume all touch events, prevent click-through
+            isClickable = true
             isFocusable = true
         }
 
@@ -847,10 +859,9 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-            isClickable = true // Prevent click-through to underlying content
+            isClickable = true
         }
 
-        // Search bar card
         val searchBarCard = MaterialCardView(this).apply {
             radius = 12.dp().toFloat()
             setCardBackgroundColor("#1A1A1A".toColorInt())
@@ -871,7 +882,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Search icon
         val searchIcon = ImageView(this).apply {
             setImageResource(android.R.drawable.ic_menu_search)
             setColorFilter("#f472a1".toColorInt())
@@ -879,13 +889,11 @@ class MainActivity : AppCompatActivity() {
         }
         searchBarContainer.addView(searchIcon)
 
-        // Spacer
         val spacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(8.dp(), 1.dp())
         }
         searchBarContainer.addView(spacer)
 
-        // EditText
         searchOverlayEditText = AppCompatEditText(this).apply {
             hint = "Search movies & TV shows..."
             setHintTextColor("#666666".toColorInt())
@@ -896,7 +904,6 @@ class MainActivity : AppCompatActivity() {
         }
         searchBarContainer.addView(searchOverlayEditText)
 
-        // Loading indicator
         searchOverlayLoading = ProgressBar(this).apply {
             indeterminateDrawable.setTint("#f472a1".toColorInt())
             layoutParams = LinearLayout.LayoutParams(20.dp(), 20.dp())
@@ -904,7 +911,6 @@ class MainActivity : AppCompatActivity() {
         }
         searchBarContainer.addView(searchOverlayLoading)
 
-        // Close button
         val closeBtn = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setColorFilter(Color.WHITE)
@@ -918,7 +924,6 @@ class MainActivity : AppCompatActivity() {
         searchBarCard.addView(searchBarContainer)
         container.addView(searchBarCard)
 
-        // Results RecyclerView
         searchOverlayResults = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             searchOverlayAdapter = SearchOverlayAdapter { item ->
@@ -942,81 +947,22 @@ class MainActivity : AppCompatActivity() {
                     outRect.set(0, 0, 0, 8.dp())
                 }
             })
-            // Add custom item animator for slide-in effect
-            itemAnimator = object : RecyclerView.ItemAnimator() {
-                override fun animateDisappearance(
-                    viewHolder: RecyclerView.ViewHolder,
-                    preLayoutInfo: ItemHolderInfo,
-                    postLayoutInfo: ItemHolderInfo?
-                ): Boolean {
-                    return false
-                }
-
-                override fun animateAppearance(
-                    viewHolder: RecyclerView.ViewHolder,
-                    preLayoutInfo: ItemHolderInfo?,
-                    postLayoutInfo: ItemHolderInfo
-                ): Boolean {
-                    // Slide in from right
-                    viewHolder.itemView.translationX = 100f
-                    viewHolder.itemView.alpha = 0f
-                    viewHolder.itemView.animate()
-                        .translationX(0f)
-                        .alpha(1f)
-                        .setDuration(200)
-                        .setInterpolator(DecelerateInterpolator(1.2f))
-                        .setListener(object : AnimatorListenerAdapter() {
-                            override fun onAnimationEnd(animation: Animator) {
-                                dispatchAnimationFinished(viewHolder)
-                            }
-                        })
-                        .start()
-                    return true
-                }
-
-                override fun animatePersistence(
-                    viewHolder: RecyclerView.ViewHolder,
-                    preLayoutInfo: ItemHolderInfo,
-                    postLayoutInfo: ItemHolderInfo
-                ): Boolean {
-                    return false
-                }
-
-                override fun animateChange(
-                    oldHolder: RecyclerView.ViewHolder,
-                    newHolder: RecyclerView.ViewHolder,
-                    preLayoutInfo: ItemHolderInfo,
-                    postLayoutInfo: ItemHolderInfo
-                ): Boolean {
-                    return false
-                }
-
-                override fun runPendingAnimations() {}
-
-                override fun endAnimation(item: RecyclerView.ViewHolder) {
-                    item.itemView.animate().cancel()
-                }
-
-                override fun endAnimations() {
-                    dispatchAnimationsFinished()
-                }
-
-                override fun isRunning(): Boolean = false
-            }
         }
         container.addView(searchOverlayResults)
 
         searchOverlay?.addView(container)
         rootContainer.addView(searchOverlay)
 
-        // Setup debounced search for overlay
         searchOverlayEditText.doAfterTextChanged { text ->
             searchOverlayJob?.cancel()
             searchOverlayJob = lifecycleScope.launch {
                 if (text.isNullOrEmpty()) {
                     searchOverlayAdapter.submitList(emptyList())
                     searchOverlayLoading.visibility = View.GONE
+                    ignoreSearchResults = true
+                    viewModel.clearSearchResults()
                 } else {
+                    ignoreSearchResults = false
                     searchOverlayLoading.visibility = View.VISIBLE
                     delay(500)
                     viewModel.searchContent(text.toString())
@@ -1028,12 +974,18 @@ class MainActivity : AppCompatActivity() {
     private fun showSearchOverlay() {
         isSearchOverlayVisible = true
 
-        // Set initial state for animation
+        ignoreSearchResults = true
+
+        searchOverlayAdapter.submitList(emptyList())
+        viewModel.clearSearchResults()
+        viewModel.clearSearchTrigger()
+        searchOverlayEditText.text?.clear()
+        searchOverlayLoading.visibility = View.GONE
+
         searchOverlay?.alpha = 0f
         searchOverlay?.translationY = -rootContainer.height.toFloat() * 0.1f
         searchOverlay?.visibility = View.VISIBLE
 
-        // Animate in - slide down and fade in
         searchOverlay?.animate()
             ?.translationY(0f)
             ?.alpha(1f)
@@ -1052,10 +1004,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideSearchOverlay() {
         isSearchOverlayVisible = false
+        ignoreSearchResults = true
 
-        // Animate out - slide up and fade out
-        searchOverlay?.animate()
-            ?.cancel() // Cancel any ongoing animation first
+        viewModel.clearSearchResults()
+        viewModel.clearSearchTrigger()
+
+        searchOverlay?.animate()?.cancel()
         searchOverlay?.animate()
             ?.translationY(-rootContainer.height.toFloat() * 0.1f)
             ?.alpha(0f)
@@ -1163,17 +1117,14 @@ class MainActivity : AppCompatActivity() {
                 val maxSeason = seasonEpisodeCounts.keys.maxOrNull() ?: totalSeasons
 
                 if (currentEpisode < currentSeasonMax) {
-                    // More episodes in current season
                     currentEpisode++
                     continuePlayback()
                 } else if (currentSeason < maxSeason) {
-                    // Move to next season
                     currentSeason++
                     currentEpisode = 1
                     totalEpisodes = seasonEpisodeCounts[currentSeason] ?: 1
                     continuePlayback()
                 } else if (seasonEpisodeCounts.isEmpty()) {
-                    // Season data not loaded yet, try next episode anyway
                     currentEpisode++
                     continuePlayback()
                 }
@@ -1195,7 +1146,9 @@ class MainActivity : AppCompatActivity() {
     private fun setupObservers() {
         lifecycleScope.launch {
             viewModel.searchResults.collect { results ->
-                searchOverlayAdapter.submitList(results)
+                if (!ignoreSearchResults) {
+                    searchOverlayAdapter.submitList(results)
+                }
                 searchOverlayLoading.visibility = View.GONE
             }
         }
@@ -1343,27 +1296,23 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(8.dp(), 8.dp()).apply {
                     marginEnd = 4.dp()
                 }
-                setBackgroundResource(android.R.drawable.presence_invisible)
                 setBackgroundColor(if (index == 0) "#f472a1".toColorInt() else "#666666".toColorInt())
             }
             carouselIndicator.addView(dot)
         }
 
-        // Load initial background
         updateCarouselBackground(0)
 
         carouselViewPager.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
 
-                // Use center-based position detection for symmetric behavior in both directions
                 val centerX = recyclerView.width / 2
                 val centerChild = recyclerView.findChildViewUnder(centerX.toFloat(), recyclerView.height / 2f)
 
                 if (centerChild != null) {
                     val newPosition = recyclerView.getChildAdapterPosition(centerChild)
                     if (newPosition != RecyclerView.NO_POSITION && newPosition != currentCarouselPosition) {
-                        // Clamp to valid range
                         val clampedPosition = newPosition.coerceIn(0, minOf(carouselItems.size, 10) - 1)
 
                         currentCarouselPosition = clampedPosition
@@ -1442,21 +1391,17 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackHandler() {
         onBackPressedDispatcher.addCallback(object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isPlayerVisible) {
-                    closePlayer()
-                } else if (isSearchOverlayVisible) {
-                    hideSearchOverlay()
-                } else if (isDetailsVisible) {
-                    hideDetailsDialog()
-                } else {
-                    finish()
+                when {
+                    isPlayerVisible -> closePlayer()
+                    isSearchOverlayVisible -> hideSearchOverlay()
+                    isDetailsVisible -> hideDetailsDialog()
+                    else -> finish()
                 }
             }
         })
     }
 
     private fun onContentClicked(item: ContentItem) {
-        // Properly hide search overlay first
         if (isSearchOverlayVisible) {
             searchOverlay?.visibility = View.GONE
             searchOverlay?.alpha = 1f
@@ -1550,7 +1495,6 @@ class MainActivity : AppCompatActivity() {
                 marginEnd = 16.dp()
             }
             setBackgroundColor("#2A2A2A".toColorInt())
-            // Add rounded corners
             clipToOutline = true
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
@@ -1572,7 +1516,6 @@ class MainActivity : AppCompatActivity() {
             setLines(2)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1580,7 +1523,6 @@ class MainActivity : AppCompatActivity() {
         }
         textContainer.addView(titleTextView)
 
-        // Type badge - aligned with title text
         val typeTextView = TextView(this).apply {
             text = if (item.type == "tv") "TV Series" else "Movie"
             setTextColor(Color.WHITE)
@@ -1605,7 +1547,6 @@ class MainActivity : AppCompatActivity() {
             text = "Loading..."
             setTextColor("#888888".toColorInt())
             textSize = 14f
-            setPadding(0, 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1725,12 +1666,10 @@ class MainActivity : AppCompatActivity() {
         }
         detailsDialogView?.addView(closeButton)
 
-        // Add view with initial state for animation
         detailsDialogView?.alpha = 0f
         detailsDialogView?.translationY = rootContainer.height.toFloat()
         rootContainer.addView(detailsDialogView)
 
-        // Animate in - slide up and fade in
         detailsDialogView?.animate()
             ?.translationY(0f)
             ?.alpha(1f)
@@ -1738,7 +1677,6 @@ class MainActivity : AppCompatActivity() {
             ?.setInterpolator(DecelerateInterpolator(1.5f))
             ?.start()
 
-        // Add swipe-down gesture to close - works from top of the dialog
         var startY = 0f
         var isDragging = false
         val touchListener = View.OnTouchListener { v, event ->
@@ -1752,10 +1690,8 @@ class MainActivity : AppCompatActivity() {
                     val deltaY = event.rawY - startY
                     if (deltaY > 10) {
                         isDragging = true
-                        // Request disallow intercept to prevent scroll view from taking over
                         v.parent?.requestDisallowInterceptTouchEvent(true)
                         detailsDialogView?.translationY = deltaY
-                        // Only start fading after 300px of swipe
                         val alphaProgress = ((deltaY - 300f) / 400f).coerceIn(0f, 1f)
                         detailsDialogView?.alpha = 1f - alphaProgress
                     }
@@ -1781,14 +1717,11 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
-        // Apply to backdrop container
         backdropContainer.setOnTouchListener(touchListener)
-        // Also apply to the outer container for swipe from anywhere when at top
         detailsDialogView?.setOnTouchListener { v, event ->
-            // Only handle if touching near the top (status bar area) or if scroll is at top
             val touchY = event.rawY
-            val statusBarHeight = getStatusBarHeight()
-            val isNearTop = touchY < statusBarHeight + 100
+            val sbHeight = getStatusBarHeight()
+            val isNearTop = touchY < sbHeight + 100
 
             if (isNearTop) {
                 touchListener.onTouch(v, event)
@@ -1830,10 +1763,9 @@ class MainActivity : AppCompatActivity() {
                     "No rating"
                 }
                 ratingTextView.text = ratingText
-                if (d.voteAverage >= 7) {
-                    ratingTextView.setTextColor("#4CAF50".toColorInt())
-                } else if (d.voteAverage >= 5) {
-                    ratingTextView.setTextColor("#FFC107".toColorInt())
+                when {
+                    d.voteAverage >= 7 -> ratingTextView.setTextColor("#4CAF50".toColorInt())
+                    d.voteAverage >= 5 -> ratingTextView.setTextColor("#FFC107".toColorInt())
                 }
 
                 val metaParts = mutableListOf<String>()
@@ -1919,7 +1851,6 @@ class MainActivity : AppCompatActivity() {
     private fun hideDetailsDialog() {
         isDetailsVisible = false
         detailsDialogView?.let { dialogView ->
-            // Animate out - slide down and fade out
             dialogView.animate()
                 .translationY(rootContainer.height.toFloat())
                 .alpha(0f)
@@ -1939,7 +1870,6 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetTextI18n")
     private fun showSeasonEpisodeDialog(item: ContentItem, seasonData: Map<Int, Int>) {
-        // Create custom dialog view
         val dialogContainer = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#CC000000"))
             layoutParams = FrameLayout.LayoutParams(
@@ -1978,7 +1908,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Title
         val titleText = TextView(this).apply {
             text = item.name
             setTextColor(Color.WHITE)
@@ -1988,7 +1917,6 @@ class MainActivity : AppCompatActivity() {
         }
         dialogView.addView(titleText)
 
-        // Season label
         val seasonLabel = TextView(this).apply {
             text = "Season"
             setTextColor(Color.WHITE)
@@ -2021,7 +1949,6 @@ class MainActivity : AppCompatActivity() {
                     marginEnd = 8.dp()
                 }
                 tag = seasonNum
-                // Initial state for animation
                 alpha = 0f
                 translationY = 20f
                 setOnClickListener { clickedView ->
@@ -2054,7 +1981,6 @@ class MainActivity : AppCompatActivity() {
             }
             seasonItems[seasonNum] = seasonCard
             seasonContainer.addView(seasonCard)
-            // Animate season cards with stagger
             seasonCard.postDelayed({
                 seasonCard.animate()
                     .alpha(1f)
@@ -2090,7 +2016,6 @@ class MainActivity : AppCompatActivity() {
         episodeScrollView.addView(episodeGridLayout)
         dialogView.addView(episodeScrollView)
 
-        // Buttons container
         val buttonsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.END
@@ -2107,7 +2032,6 @@ class MainActivity : AppCompatActivity() {
             textSize = 14f
             setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
             setOnClickListener {
-                // Animate out
                 dialogCard.animate()
                     .scaleX(0.9f)
                     .scaleY(0.9f)
@@ -2135,7 +2059,6 @@ class MainActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
             setOnClickListener {
-                // Animate out first
                 dialogCard.animate()
                     .scaleX(0.9f)
                     .scaleY(0.9f)
@@ -2165,9 +2088,7 @@ class MainActivity : AppCompatActivity() {
         dialogCard.addView(dialogView)
         dialogContainer.addView(dialogCard)
 
-        // Allow tapping outside to close
         dialogContainer.setOnClickListener {
-            // Animate out
             dialogCard.animate()
                 .scaleX(0.9f)
                 .scaleY(0.9f)
@@ -2186,17 +2107,14 @@ class MainActivity : AppCompatActivity() {
                 .start()
         }
 
-        // Prevent click-through on dialog card
         dialogCard.setOnClickListener { /* consume click */ }
 
-        // Add to root with initial state for animation
         dialogContainer.alpha = 0f
         dialogCard.scaleX = 0.9f
         dialogCard.scaleY = 0.9f
         dialogCard.alpha = 0f
         rootContainer.addView(dialogContainer)
 
-        // Animate in
         dialogContainer.animate()
             .alpha(1f)
             .setDuration(200)
@@ -2242,7 +2160,6 @@ class MainActivity : AppCompatActivity() {
                     height = 48.dp()
                     setMargins(0, 0, 8.dp(), 8.dp())
                 }
-                // Initial state for animation
                 alpha = 0f
                 scaleX = 0.8f
                 scaleY = 0.8f
@@ -2266,7 +2183,6 @@ class MainActivity : AppCompatActivity() {
             }
             episodeCards[i] = episodeCard
             container.addView(episodeCard)
-            // Animate episode cards with stagger
             episodeCard.postDelayed({
                 episodeCard.animate()
                     .alpha(1f)
@@ -2275,7 +2191,7 @@ class MainActivity : AppCompatActivity() {
                     .setDuration(150)
                     .setInterpolator(OvershootInterpolator(1.2f))
                     .start()
-            }, (i - 1) * 20L) // 20ms stagger per episode
+            }, (i - 1) * 20L)
         }
     }
 
@@ -2293,12 +2209,10 @@ class MainActivity : AppCompatActivity() {
         currentContent = item
         playerLoadingIndicator.visibility = View.VISIBLE
 
-        // Only reset season/episode state if not already set (for movies or direct play)
         if (item.type == "movie") {
             currentSeason = 1
             currentEpisode = 1
         }
-        // For TV shows, keep the already selected season/episode from the dialog
         if (seasonEpisodeCounts.isEmpty()) {
             totalSeasons = 1
             totalEpisodes = 1
@@ -2482,7 +2396,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // DiffUtil callback for ContentItem
     class ContentDiffCallback : DiffUtil.ItemCallback<ContentItem>() {
         override fun areItemsTheSame(oldItem: ContentItem, newItem: ContentItem): Boolean {
             return oldItem.id == newItem.id && oldItem.type == newItem.type
@@ -2493,7 +2406,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Search Overlay Adapter - compact card design
     inner class SearchOverlayAdapter(private val onItemClick: (ContentItem) -> Unit) :
         ListAdapter<ContentItem, SearchOverlayViewHolder>(ContentDiffCallback()) {
 
@@ -2520,12 +2432,10 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            // Poster with rounded corners
             val poster = AppCompatImageView(parent.context).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 layoutParams = LinearLayout.LayoutParams(50.dp(), 70.dp())
                 setBackgroundColor("#2A2A2A".toColorInt())
-                // Apply rounded corners programmatically
                 outlineProvider = object : ViewOutlineProvider() {
                     override fun getOutline(view: View, outline: Outline) {
                         outline.setRoundRect(0, 0, view.width, view.height, 8.dp().toFloat())
@@ -2536,14 +2446,12 @@ class MainActivity : AppCompatActivity() {
 
             container.addView(poster)
 
-            // Info container
             val infoContainer = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(10.dp(), 0.dp(), 8.dp(), 0.dp())
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
-            // Title
             val title = TextView(parent.context).apply {
                 setTextColor(Color.WHITE)
                 textSize = 13f
@@ -2554,7 +2462,6 @@ class MainActivity : AppCompatActivity() {
             }
             infoContainer.addView(title)
 
-            // Rating badge - same style as explore page
             val ratingBadge = TextView(parent.context).apply {
                 setTextColor("#FFD700".toColorInt())
                 textSize = 10f
@@ -2574,7 +2481,6 @@ class MainActivity : AppCompatActivity() {
             }
             infoContainer.addView(ratingBadge)
 
-            // Genres
             val genres = TextView(parent.context).apply {
                 setTextColor("#888888".toColorInt())
                 textSize = 11f
@@ -2590,7 +2496,6 @@ class MainActivity : AppCompatActivity() {
             }
             infoContainer.addView(genres)
 
-            // Content type badge (pink)
             val typeBadge = TextView(parent.context).apply {
                 setTextColor("#f472a1".toColorInt())
                 textSize = 10f
@@ -2606,16 +2511,11 @@ class MainActivity : AppCompatActivity() {
 
             container.addView(infoContainer)
 
-            // Right arrow
             val arrow = TextView(parent.context).apply {
                 text = "›"
                 setTextColor("#f472a1".toColorInt())
                 textSize = 20f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
             }
             container.addView(arrow)
 
@@ -2630,7 +2530,6 @@ class MainActivity : AppCompatActivity() {
 
             holder.title.text = item.name
 
-            // Rating badge
             if (item.voteAverage > 0) {
                 holder.ratingBadge.text = "★ ${String.format(java.util.Locale.US, "%.1f", item.voteAverage)}"
                 holder.ratingBadge.visibility = View.VISIBLE
@@ -2638,7 +2537,6 @@ class MainActivity : AppCompatActivity() {
                 holder.ratingBadge.visibility = View.GONE
             }
 
-            // Genres - use MainViewModel function
             val genreNames = MainViewModel.getGenreNames(item.genreIds, item.type)
             if (genreNames.isNotEmpty()) {
                 holder.genres.text = genreNames.joinToString(", ")
@@ -2647,22 +2545,18 @@ class MainActivity : AppCompatActivity() {
                 holder.genres.visibility = View.GONE
             }
 
-            // Content type (pink)
             holder.typeBadge.text = if (item.type == "tv") "TV Show" else "Movie"
 
             holder.itemView.setOnClickListener { onItemClick(item) }
 
-            // Load poster
             if (!item.posterUrl.isNullOrEmpty()) {
                 Glide.with(holder.poster.context)
                     .load(item.posterUrl)
                     .transition(DrawableTransitionOptions.withCrossFade(150))
-                    .placeholder(R.drawable.placeholder_poster)
-                    .error(R.drawable.placeholder_poster)
                     .centerCrop()
                     .into(holder.poster)
             } else {
-                holder.poster.setImageResource(R.drawable.placeholder_poster)
+                holder.poster.setImageDrawable(null) // Clear if no URL
             }
         }
     }
@@ -2676,7 +2570,6 @@ class MainActivity : AppCompatActivity() {
         val typeBadge: TextView
     ) : RecyclerView.ViewHolder(itemView)
 
-    // Horizontal Content Adapter for explore sections
     inner class HorizontalContentAdapter(
         private val items: List<ContentItem>,
         private val onItemClick: (ContentItem) -> Unit
@@ -2799,12 +2692,10 @@ class MainActivity : AppCompatActivity() {
                 Glide.with(holder.poster.context)
                     .load(item.posterUrl)
                     .transition(DrawableTransitionOptions.withCrossFade())
-                    .placeholder(R.drawable.placeholder_poster)
-                    .error(R.drawable.placeholder_poster)
                     .centerCrop()
                     .into(holder.poster)
             } else {
-                holder.poster.setImageResource(R.drawable.placeholder_poster)
+                holder.poster.setImageDrawable(null)
             }
 
             holder.outerContainer.setOnClickListener { onItemClick(item) }
@@ -2813,7 +2704,6 @@ class MainActivity : AppCompatActivity() {
         override fun getItemCount() = items.size
     }
 
-    // Carousel Adapter
     inner class CarouselAdapter(
         private val items: List<ContentItem>,
         private val onItemClick: (ContentItem) -> Unit
@@ -2941,10 +2831,4 @@ class MainActivity : AppCompatActivity() {
         val ratingBadge: TextView,
         val typeBadge: TextView
     ) : RecyclerView.ViewHolder(outerContainer)
-
-    override fun onDestroy() {
-        super.onDestroy()
-        exoPlayer.release()
-        carouselTimer?.cancel()
-    }
 }
