@@ -1,5 +1,7 @@
 package com.blissless.stream
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.ColorStateList
@@ -19,8 +21,6 @@ import android.view.WindowInsetsController
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -37,34 +37,31 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.AppCompatEditText
+import androidx.appcompat.widget.AppCompatImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.activity.viewModels
-import androidx.annotation.OptIn
-import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.AppCompatEditText
-import androidx.appcompat.widget.AppCompatImageView
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.graphics.toColorInt
 import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -89,7 +86,6 @@ import kotlinx.coroutines.launch
 import java.util.Timer
 import java.util.TimerTask
 import java.util.concurrent.atomic.AtomicBoolean
-import androidx.core.graphics.toColorInt
 
 @UnstableApi
 @SuppressLint("SetTextI18n", "InternalInsetResource", "DiscouragedApi")
@@ -102,11 +98,7 @@ class MainActivity : AppCompatActivity() {
 
     // Navigation
     private lateinit var bottomNav: LinearLayout
-    private var bottomNavComposeView: ComposeNavView? = null
-    private lateinit var ivExplore: ImageView
-    private lateinit var ivSearch: ImageView
-    private lateinit var tvExplore: TextView
-    private lateinit var tvSearch: TextView
+    private var bottomNavComposeView: BottomNavView? = null
 
     // Explore Page
     private lateinit var exploreContainer: ScrollView
@@ -213,10 +205,10 @@ class MainActivity : AppCompatActivity() {
         "casalemedia.com", "moatads.com"
     )
 
-    @OptIn(UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createUI()
+        setupNavigation()
         setupObservers()
         setupBackHandler()
         initializePlayer()
@@ -241,7 +233,6 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    @OptIn(UnstableApi::class)
     private fun initializePlayer() {
         exoPlayer = ExoPlayer.Builder(this).build()
         playerView.player = exoPlayer
@@ -277,9 +268,10 @@ class MainActivity : AppCompatActivity() {
 
         // 2. Increase Play Button Size
         val playButton = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
-        playButton?.layoutParams = (playButton?.layoutParams as? android.widget.LinearLayout.LayoutParams)?.apply {
-            width = 72.dp()
-            height = 72.dp()
+        (playButton?.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let {
+            it.width = 72.dp()
+            it.height = 72.dp()
+            playButton.layoutParams = it
         }
 
         // 3. Find the Default "Prev" and "Next" buttons
@@ -454,7 +446,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @OptIn(UnstableApi::class)
     private fun cycleResizeMode() {
         currentResizeMode = (currentResizeMode + 1) % resizeModes.size
         val (mode, name) = resizeModes[currentResizeMode]
@@ -475,6 +466,8 @@ class MainActivity : AppCompatActivity() {
         return result
     }
 
+    private fun setupNavigation() {}
+
     private fun switchToExplore() {
         currentNavPage = 0
         exploreContainer.visibility = View.VISIBLE
@@ -482,7 +475,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateNavSelection() {
-        bottomNavComposeView?.updateTab()
+        bottomNavComposeView?.updateSelectedTab(currentNavPage)
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -758,7 +751,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        bottomNavComposeView = ComposeNavView(this, { currentNavPage }) { tab ->
+        bottomNavComposeView = BottomNavView(this, currentNavPage) { tab ->
             when (tab) {
                 0 -> switchToExplore()
                 1 -> showSearchOverlay()
@@ -2254,7 +2247,6 @@ class MainActivity : AppCompatActivity() {
         scraperWebView.loadUrl(url)
     }
 
-    @OptIn(UnstableApi::class)
     private fun playM3u8WithExoPlayer(m3u8Url: String) {
         runOnUiThread {
             playerLoadingIndicator.visibility = View.GONE
@@ -2799,27 +2791,21 @@ class MainActivity : AppCompatActivity() {
     ) : RecyclerView.ViewHolder(outerContainer)
 }
 
-class ComposeNavView(
+class BottomNavView(
     context: android.content.Context,
-    private val selectedTab: () -> Int,
+    private val initialTab: Int,
     private val onTabSelected: (Int) -> Unit
 ) : androidx.compose.ui.platform.AbstractComposeView(context) {
     
-    private var internalTab = selectedTab()
+    private var selectedTab = initialTab
     
     @Composable
     override fun Content() {
-        StreamBottomNav(
-            selectedTab = internalTab,
-            onTabSelected = { tab ->
-                internalTab = tab
-                onTabSelected(tab)
-            }
-        )
+        StreamBottomNav(selectedTab, onTabSelected)
     }
     
-    fun updateTab() {
-        internalTab = selectedTab()
+    fun updateSelectedTab(tab: Int) {
+        selectedTab = tab
     }
 }
 
@@ -2830,65 +2816,53 @@ fun StreamBottomNav(
 ) {
     val accentColor = androidx.compose.ui.graphics.Color(0xfff472a1)
     val unselectedColor = androidx.compose.ui.graphics.Color(0xff666666)
-
+    
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(80.dp)
             .background(androidx.compose.ui.graphics.Color(0xff121212))
-            .padding(bottom = 16.dp)
+            .padding(top = 12.dp, bottom = 16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            Box(
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .weight(1f)
-                    .clickable { onTabSelected(0) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
+                    .clickable { onTabSelected(0) },
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Explore,
-                        contentDescription = "Explore",
-                        tint = if (selectedTab == 0) accentColor else unselectedColor,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text(
-                        text = "Explore",
-                        color = if (selectedTab == 0) accentColor else unselectedColor,
-                        fontSize = 12.sp
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.Home,
+                    contentDescription = "Explore",
+                    tint = if (selectedTab == 0) accentColor else unselectedColor
+                )
+                Text(
+                    text = "Explore",
+                    color = if (selectedTab == 0) accentColor else unselectedColor,
+                    fontSize = 12.sp
+                )
             }
-
-            Box(
+            
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .weight(1f)
                     .clickable { onTabSelected(1) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = "Search",
-                        tint = if (selectedTab == 1) accentColor else unselectedColor,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text(
-                        text = "Search",
-                        color = if (selectedTab == 1) accentColor else unselectedColor,
-                        fontSize = 12.sp
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "Search",
+                    tint = if (selectedTab == 1) accentColor else unselectedColor
+                )
+                Text(
+                    text = "Search",
+                    color = if (selectedTab == 1) accentColor else unselectedColor,
+                    fontSize = 12.sp
+                )
             }
         }
     }

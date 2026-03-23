@@ -35,3 +35,26 @@
 -keep class com.bumptech.glide.load.data.ParcelFileDescriptorRewinder$InternalRewinder {
   *** rewind();
 }
+
+# Keep only used Material icons (Explore, Search)
+-keep class androidx.compose.material.icons.filled.Explore
+-keep class androidx.compose.material.icons.filled.Search
+
+# Keep Media3/ExoPlayer
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+# Keep Retrofit
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class retrofit2.** { *; }
+-keepclasseswithmembers class * {
+    @retrofit2.http.* <methods>;
+}
+-dontwarn retrofit2.**
+
+# Keep Gson models
+-keep class com.blissless.stream.** { *; }
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
