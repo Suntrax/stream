@@ -37,6 +37,28 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.viewModels
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
@@ -80,8 +102,7 @@ class MainActivity : AppCompatActivity() {
 
     // Navigation
     private lateinit var bottomNav: LinearLayout
-    private lateinit var btnExplore: LinearLayout
-    private lateinit var btnSearch: LinearLayout
+    private var bottomNavComposeView: ComposeNavView? = null
     private lateinit var ivExplore: ImageView
     private lateinit var ivSearch: ImageView
     private lateinit var tvExplore: TextView
@@ -200,7 +221,6 @@ class MainActivity : AppCompatActivity() {
         setupBackHandler()
         initializePlayer()
         setupGestureDetector()
-        setupNavigation()
         loadExploreContent()
     }
 
@@ -455,11 +475,6 @@ class MainActivity : AppCompatActivity() {
         return result
     }
 
-    private fun setupNavigation() {
-        btnExplore.setOnClickListener { switchToExplore() }
-        btnSearch.setOnClickListener { showSearchOverlay() }
-    }
-
     private fun switchToExplore() {
         currentNavPage = 0
         exploreContainer.visibility = View.VISIBLE
@@ -467,20 +482,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateNavSelection() {
-        val selectedColor = "#f472a1".toColorInt()
-        val unselectedColor = "#666666".toColorInt()
-
-        if (currentNavPage == 0) {
-            ivExplore.setColorFilter(selectedColor)
-            tvExplore.setTextColor(selectedColor)
-            ivSearch.setColorFilter(unselectedColor)
-            tvSearch.setTextColor(unselectedColor)
-        } else {
-            ivExplore.setColorFilter(unselectedColor)
-            tvExplore.setTextColor(unselectedColor)
-            ivSearch.setColorFilter(selectedColor)
-            tvSearch.setTextColor(selectedColor)
-        }
+        bottomNavComposeView?.updateTab()
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -746,8 +748,8 @@ class MainActivity : AppCompatActivity() {
         // ========== BOTTOM NAVIGATION ==========
         bottomNav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor("#121212".toColorInt())
-            setPadding(0, 8.dp(), 0, 16.dp())
+            setBackgroundColor(android.graphics.Color.parseColor("#121212"))
+            setPadding(0, 0, 0, 0)
             layoutParams = ConstraintLayout.LayoutParams(
                 ConstraintLayout.LayoutParams.MATCH_PARENT,
                 ConstraintLayout.LayoutParams.WRAP_CONTENT
@@ -756,67 +758,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnExplore = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER
-            setPadding(16.dp(), 8.dp(), 16.dp(), 8.dp())
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        ivExplore = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_compass) // Built-in icon
-            setColorFilter("#f472a1".toColorInt())
-            layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp()).apply {
-                gravity = android.view.Gravity.CENTER
+        bottomNavComposeView = ComposeNavView(this, { currentNavPage }) { tab ->
+            when (tab) {
+                0 -> switchToExplore()
+                1 -> showSearchOverlay()
             }
         }
-        btnExplore.addView(ivExplore)
-
-        tvExplore = TextView(this).apply {
-            text = "Explore"
-            textSize = 12f
-            setTextColor("#f472a1".toColorInt())
-            setPadding(0, 4.dp(), 0, 0)
-            gravity = android.view.Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        btnExplore.addView(tvExplore)
-
-        bottomNav.addView(btnExplore)
-
-        btnSearch = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER
-            setPadding(16.dp(), 8.dp(), 16.dp(), 8.dp())
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        ivSearch = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_search)
-            setColorFilter("#666666".toColorInt())
-            layoutParams = LinearLayout.LayoutParams(28.dp(), 28.dp()).apply {
-                gravity = android.view.Gravity.CENTER
-            }
-        }
-        btnSearch.addView(ivSearch)
-
-        tvSearch = TextView(this).apply {
-            text = "Search"
-            textSize = 12f
-            setTextColor("#666666".toColorInt())
-            setPadding(0, 4.dp(), 0, 0)
-            gravity = android.view.Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        btnSearch.addView(tvSearch)
-
-        bottomNav.addView(btnSearch)
+        bottomNav.addView(bottomNavComposeView!!)
 
         rootContainer.addView(exploreContainer, ConstraintLayout.LayoutParams(
             ConstraintLayout.LayoutParams.MATCH_PARENT,
@@ -973,6 +921,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSearchOverlay() {
         isSearchOverlayVisible = true
+        carouselTimer?.cancel()
 
         ignoreSearchResults = true
 
@@ -1021,6 +970,9 @@ class MainActivity : AppCompatActivity() {
                         searchOverlay?.visibility = View.GONE
                         searchOverlay?.translationY = 0f
                         searchOverlay?.alpha = 1f
+                        if (!isDetailsVisible && !isPlayerVisible) {
+                            startCarouselTimer()
+                        }
                     }
                 }
             })
@@ -1323,15 +1275,27 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
-                    layoutManager?.let {
-                        val newPosition = it.findFirstCompletelyVisibleItemPosition()
-                        if (newPosition != RecyclerView.NO_POSITION && newPosition != currentCarouselPosition) {
-                            currentCarouselPosition = newPosition
-                            updateCarouselIndicator()
-                            updateCarouselBackground(newPosition)
-                            resetCarouselTimer()
+                when (newState) {
+                    RecyclerView.SCROLL_STATE_DRAGGING -> {
+                        carouselTimer?.cancel()
+                    }
+                    RecyclerView.SCROLL_STATE_SETTLING -> {
+                    }
+                    RecyclerView.SCROLL_STATE_IDLE -> {
+                        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+                        layoutManager?.let {
+                            val newPosition = it.findFirstCompletelyVisibleItemPosition()
+                            if (newPosition != RecyclerView.NO_POSITION && newPosition != currentCarouselPosition) {
+                                currentCarouselPosition = newPosition
+                                updateCarouselIndicator()
+                                updateCarouselBackground(newPosition)
+                            }
+                        }
+                        lifecycleScope.launch {
+                            delay(3000)
+                            if (!isDetailsVisible && !isPlayerVisible) {
+                                startCarouselTimer()
+                            }
                         }
                     }
                 }
@@ -1423,6 +1387,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     private fun showContentDetails(item: ContentItem) {
         isDetailsVisible = true
+        carouselTimer?.cancel()
 
         detailsDialogView = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -1850,6 +1815,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideDetailsDialog() {
         isDetailsVisible = false
+        startCarouselTimer()
         detailsDialogView?.let { dialogView ->
             dialogView.animate()
                 .translationY(rootContainer.height.toFloat())
@@ -2831,4 +2797,99 @@ class MainActivity : AppCompatActivity() {
         val ratingBadge: TextView,
         val typeBadge: TextView
     ) : RecyclerView.ViewHolder(outerContainer)
+}
+
+class ComposeNavView(
+    context: android.content.Context,
+    private val selectedTab: () -> Int,
+    private val onTabSelected: (Int) -> Unit
+) : androidx.compose.ui.platform.AbstractComposeView(context) {
+    
+    private var internalTab = selectedTab()
+    
+    @Composable
+    override fun Content() {
+        StreamBottomNav(
+            selectedTab = internalTab,
+            onTabSelected = { tab ->
+                internalTab = tab
+                onTabSelected(tab)
+            }
+        )
+    }
+    
+    fun updateTab() {
+        internalTab = selectedTab()
+    }
+}
+
+@Composable
+fun StreamBottomNav(
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit
+) {
+    val accentColor = androidx.compose.ui.graphics.Color(0xfff472a1)
+    val unselectedColor = androidx.compose.ui.graphics.Color(0xff666666)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(androidx.compose.ui.graphics.Color(0xff121212))
+            .padding(bottom = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onTabSelected(0) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Explore,
+                        contentDescription = "Explore",
+                        tint = if (selectedTab == 0) accentColor else unselectedColor,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = "Explore",
+                        color = if (selectedTab == 0) accentColor else unselectedColor,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onTabSelected(1) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = if (selectedTab == 1) accentColor else unselectedColor,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = "Search",
+                        color = if (selectedTab == 1) accentColor else unselectedColor,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
 }
