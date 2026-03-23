@@ -16,7 +16,6 @@ I do not host any content within this app. All content is streamed from third-pa
 - **Search** - Find content instantly with debounced search
 - **Streaming** - Watch with built-in HLS player (ExoPlayer)
 - **Episode Selection** - Season and episode picker for TV shows
-- **Gesture Controls** - Skip buttons, swipe down to close details
 - **Auto-next Episode** - Seamless playback continuation
 
 ## Requirements
