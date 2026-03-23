@@ -1,152 +1,52 @@
-<div align="center">
-
 # Stream
 
-A modern Android streaming application for discovering and watching movies and TV shows. Built with Kotlin and powered by TMDB API for content discovery.
+A modern Android streaming app for discovering and watching movies and TV shows.
 
 ![Platform](https://img.shields.io/badge/Platform-Android-green.svg)
 ![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)
 ![MinSDK](https://img.shields.io/badge/MinSDK-28-orange.svg)
 
-</div>
+## Important
 
-## ✨ Features
+I do not host any content within this app. All content is streamed from third-party sources.
 
-### 🎬 Content Discovery
-- **Trending Carousel** - Auto-scrolling featured content with dynamic background transitions
-- **Multiple Categories** - Popular movies, TV shows, top rated, now playing, and genre-specific sections
-- **Search** - Instant search across movies and TV shows with debounced queries
-- **Detailed Info** - Comprehensive content details including ratings, genres, runtime, and status
+## Features
 
-### 📺 Streaming
-- **HLS Streaming** - Smooth video playback via ExoPlayer
+- **Explore** - Browse trending, popular, and top-rated movies and TV shows
+- **Search** - Find content instantly with debounced search
+- **Streaming** - Watch with built-in HLS player (ExoPlayer)
 - **Episode Selection** - Season and episode picker for TV shows
-- **Playback Controls** - Skip forward/backward with double-tap gestures
-- **Auto-next Episode** - Automatic playback of next episode
-- **Resize Modes** - Fit, Fill, and Stretch options
-- **Ad Blocking** - Built-in ad domain blocking for cleaner streaming
+- **Gesture Controls** - Skip buttons, swipe down to close details
+- **Auto-next Episode** - Seamless playback continuation
 
-### 🎨 Modern UI
-- **Dark Theme** - Sleek dark interface optimized for viewing
-- **Card-based Design** - Clean Material Design components
-- **Smooth Animations** - Slide-up dialogs, fade transitions, and fluid scrolling
-- **Swipe Gestures** - Swipe down on backdrop to close description dialog
-- **Responsive Indicators** - Real-time carousel position updates
+## Requirements
 
-### ⚡ Performance
-- **TMDB Caching** - 10-minute cache for API responses to reduce network calls
-- **Efficient Image Loading** - Glide with crossfade transitions
-- **Coroutines & Flow** - Reactive data updates with efficient async handling
+- Android 8.0+ (API 28+)
+- TMDB API key (required for content discovery)
 
-## 📱 Screenshots
+## Installation
 
-| Explore Page | Search Results | Content Details |
-|:------------:|:--------------:|:---------------:|
-| ![Explore](screenshots/explore.png) | ![Search](screenshots/search.png) | ![Details](screenshots/details.png) |
+Download the APK from [Releases](https://github.com/blissless/stream/releases) and install.
 
-| Episode Selector | Video Player |
-|:---------------:|:------------:|
-| ![Episodes](screenshots/episodes.png) | ![Player](screenshots/player.png) |
+## Tech Stack
 
-## 🛠️ Tech Stack
+- Kotlin
+- Media3 ExoPlayer
+- TMDB API
+- Glide
+- MVVM Architecture
 
-- **Language:** Kotlin
-- **Architecture:** MVVM (Model-View-ViewModel)
-- **Async:** Kotlin Coroutines & Flow
-- **Networking:** HttpsURLConnection
-- **Image Loading:** Glide
-- **Video Player:** ExoPlayer (Media3)
-- **UI Components:** Material Design Components
-
-## 🔑 API Configuration
-
-This app uses the TMDB API for content discovery. To run the app:
-
-1. Get your API key from [TMDB](https://www.themoviedb.org/settings/api)
-2. Add to your `build.gradle.kts` (app level):
-
-```kotlin
-android {
-    defaultConfig {
-        buildConfigField("String", "TMDB_API_KEY", "\"YOUR_API_KEY_HERE\"")
-    }
-}
-```
-
-## 🏗️ Building the Project
-
-1. Clone the repository:
-```bash
-git clone https://github.com/YOUR_USERNAME/blissless-stream.git
-```
-
-2. Open in Android Studio
-
-3. Add your TMDB API key in `build.gradle.kts`
-
-4. Build and run on device/emulator (API 28+)
-
-## 📂 Project Structure
+## Project Structure
 
 ```
-app/
-├── src/main/
-│   ├── java/com/blissless/stream/
-│   │   ├── MainActivity.kt       # Main UI and adapters
-│   │   ├── MainViewModel.kt      # Business logic and API calls
-│   ├── res/
-│   │   ├── drawable/             # Icons and backgrounds
-│   │   ├── values/               # Colors, strings, themes
-│   │   └── xml/                  # Network security config
-│   └── AndroidManifest.xml
-└── build.gradle.kts
+app/src/main/java/com/blissless/stream/
+├── MainActivity.kt       # Main UI, navigation, adapters
+├── MainViewModel.kt     # Business logic and API calls
+├── api/                 # Retrofit/TMDB API interface
+├── models/              # Data classes
+└── utils/               # Extensions and helpers
 ```
 
-## 🎯 Key Components
+## Disclaimer
 
-### MainActivity
-- Creates UI programmatically (no XML layouts)
-- Handles navigation between Explore and Search
-- Manages video playback and player controls
-- Contains all RecyclerView adapters
-- Implements swipe gestures and animations
-
-### MainViewModel
-- Manages content state with StateFlow
-- Handles API calls with coroutines
-- Implements debounced search
-- Caches content details and season info
-- 10-minute TMDB API response caching
-
-### Adapters
-- `SearchOverlayAdapter` - Compact search result cards with slide-in animation
-- `HorizontalContentAdapter` - Explore section cards
-- `CarouselAdapter` - Featured content carousel
-
-## 🔒 Privacy & Security
-
-- No user data collection
-- No analytics tracking
-- Ad domain blocking for cleaner streaming experience
-- Network security configuration for secure connections
-- API key stored securely via BuildConfig
-
-## 📄 License
-
-This project is for educational purposes only. Content is provided by TMDB API.
-
-**Note:** This app is not affiliated with TMDB or any streaming service. Use responsibly and respect content copyrights.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-Made with ❤️ by Blissless
+This app is for educational purposes only. I do not host, upload, or distribute any content. All streaming links are provided by third-party sources.
