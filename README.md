@@ -22,7 +22,6 @@ I do not host any content within this app. All content is streamed from third-pa
 ## Requirements
 
 - Android 8.0+ (API 28+)
-- TMDB API key (required for content discovery)
 
 ## Installation
 
@@ -35,17 +34,6 @@ Download the APK from [Releases](https://github.com/blissless/stream/releases) a
 - TMDB API
 - Glide
 - MVVM Architecture
-
-## Project Structure
-
-```
-app/src/main/java/com/blissless/stream/
-├── MainActivity.kt       # Main UI, navigation, adapters
-├── MainViewModel.kt     # Business logic and API calls
-├── api/                 # Retrofit/TMDB API interface
-├── models/              # Data classes
-└── utils/               # Extensions and helpers
-```
 
 ## Disclaimer
 
