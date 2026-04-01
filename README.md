@@ -6,10 +6,6 @@ A modern Android streaming app for discovering and watching movies and TV shows.
 ![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)
 ![MinSDK](https://img.shields.io/badge/MinSDK-28-orange.svg)
 
-## Important
-
-I do not host any content within this app. All content is streamed from third-party sources.
-
 ## Features
 
 - **Explore** - Browse trending, popular, and top-rated movies and TV shows
