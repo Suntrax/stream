@@ -352,6 +352,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val tagline = json.optString("tagline", "")
 
+            val seasonsArray = json.optJSONArray("seasons")
+            val seasons = mutableListOf<SeasonInfo>()
+            seasonsArray?.let {
+                for (i in 0 until it.length()) {
+                    val seasonObj = it.getJSONObject(i)
+                    val seasonNumber = seasonObj.optInt("season_number", 0)
+                    val episodeCount = seasonObj.optInt("episode_count", 0)
+                    val seasonName = seasonObj.optString("name", "Season $seasonNumber")
+                    if (seasonNumber > 0) {
+                        seasons.add(SeasonInfo(seasonNumber, episodeCount, seasonName))
+                    }
+                }
+            }
+            if (seasons.isEmpty() && mediaType == "tv") {
+                for (i in 1..numberOfSeasons) {
+                    seasons.add(SeasonInfo(i, 24))
+                }
+            }
+
             ContentDetails(
                 id = json.optInt("id"),
                 title = title,
@@ -367,7 +386,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 numberOfEpisodes = numberOfEpisodes,
                 status = status,
                 tagline = tagline,
-                type = mediaType
+                type = mediaType,
+                seasons = seasons
             )
         } catch (_: Exception) {
             null
@@ -526,6 +546,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _error.value = "Failed to load crime TV shows: ${e.message}"
             }
         }
+    }
+
+    fun loadExploreContent() {
+        loadTrending()
+        loadPopularMovies()
+        loadPopularTVShows()
+        loadTopRatedMovies()
+        loadTopRatedTVShows()
+        loadActionMovies()
+        loadComedyMovies()
+        loadHorrorMovies()
+        loadSciFiMovies()
+        loadAnimationMovies()
+        loadThrillerMovies()
+        loadFantasyMovies()
     }
 
     private suspend fun fetchFromTMDB(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> = withContext(Dispatchers.IO) {
@@ -689,7 +724,17 @@ data class ContentItem(
     val posterUrl: String?,
     val backdropUrl: String? = null,
     val voteAverage: Double = 0.0,
-    val genreIds: List<Int> = emptyList()
+    val genreIds: List<Int> = emptyList(),
+    val progressPosition: Long = 0L,
+    val progressDuration: Long = 0L,
+    val progressSeason: Int = 1,
+    val progressEpisode: Int = 1
+)
+
+data class SeasonInfo(
+    val seasonNumber: Int,
+    val episodeCount: Int,
+    val name: String = "Season $seasonNumber"
 )
 
 data class ContentDetails(
@@ -707,5 +752,6 @@ data class ContentDetails(
     val numberOfEpisodes: Int,
     val status: String,
     val tagline: String,
-    val type: String
+    val type: String,
+    val seasons: List<SeasonInfo> = emptyList()
 )
