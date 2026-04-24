@@ -441,7 +441,8 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
         Column(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                userScrollEnabled = false
             ) { page ->
                 when (page) {
                     0 -> ScheduleScreen(onContentClick = { item: ContentItem ->
@@ -481,7 +482,7 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
             onTabSelected = { tab: Int ->
                 selectedTab = tab
                 coroutineScope.launch {
-                    pagerState.animateScrollToPage(tab)
+                    pagerState.scrollToPage(tab)
                 }
             },
             modifier = Modifier.align(Alignment.BottomCenter)

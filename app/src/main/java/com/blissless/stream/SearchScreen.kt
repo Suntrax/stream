@@ -57,6 +57,7 @@ import com.blissless.stream.MainViewModel
 import com.blissless.stream.ContentItem
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
+import java.util.Locale
 
 @Composable
 fun SearchScreen(
@@ -232,7 +233,7 @@ fun SearchResultItem(
             )
             if (item.voteAverage > 0) {
                 Text(
-                    text = "Rating: ${String.format("%.1f", item.voteAverage)}/10",
+                    text = "Rating: ${String.format(Locale.US, "%.1f", item.voteAverage)}/10",
                     color = Color.Gray,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 4.dp)

@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +19,8 @@ import org.json.JSONObject
 import java.net.URL
 import java.net.URLEncoder
 import javax.net.ssl.HttpsURLConnection
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -105,6 +109,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _fantasyMovies = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _topRatedTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
     private val _crimeTVShows = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _upcoming = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _airingToday = MutableStateFlow<List<AiringShow>>(emptyList())
+    private val _upcomingTV = MutableStateFlow<List<ContentItem>>(emptyList())
+    private val _upcomingTVShows = MutableStateFlow<List<AiringShow>>(emptyList())
 
     val searchResults: StateFlow<List<ContentItem>> = _searchResults.asStateFlow()
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -126,6 +134,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val fantasyMovies: StateFlow<List<ContentItem>> = _fantasyMovies.asStateFlow()
     val topRatedTVShows: StateFlow<List<ContentItem>> = _topRatedTVShows.asStateFlow()
     val crimeTVShows: StateFlow<List<ContentItem>> = _crimeTVShows.asStateFlow()
+val upcoming: StateFlow<List<ContentItem>> = _upcoming.asStateFlow()
+    val airingToday: StateFlow<List<AiringShow>> = _airingToday.asStateFlow()
+    val upcomingTVShows: StateFlow<List<AiringShow>> = _upcomingTVShows.asStateFlow()
 
     private var searchJob: Job? = null
     private val episodeCache = mutableMapOf<String, Int>()
@@ -449,6 +460,238 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadUpcoming() {
+        viewModelScope.launch {
+            try {
+                loadScheduleData()
+            } catch (e: Exception) {
+                _error.value = "Failed to load upcoming: ${e.message}"
+            }
+        }
+    }
+
+    private suspend fun loadScheduleData() = withContext(Dispatchers.IO) {
+        val limit = 10
+        
+        val airingTodayData = fetchJsonDirect("$TMDB_BASE_URL/tv/airing_today?language=en-US&page=1")
+        val onTheAirData = fetchJsonDirect("$TMDB_BASE_URL/tv/on_the_air?language=en-US&page=1")
+        val moviesData = fetchJsonDirect("$TMDB_BASE_URL/movie/upcoming?language=en-US&page=1")
+
+        val airingTodayList = airingTodayData?.optJSONArray("results") ?: org.json.JSONArray()
+        val onTheAirList = onTheAirData?.optJSONArray("results") ?: org.json.JSONArray()
+        val moviesList = moviesData?.optJSONArray("results") ?: org.json.JSONArray()
+
+        val todayShows = mutableListOf<AiringShow>()
+        val upcomingShows = mutableListOf<AiringShow>()
+        val upcomingMoviesList = mutableListOf<ContentItem>()
+
+        val todayIds = mutableListOf<Int>()
+        for (i in 0 until minOf(limit, airingTodayList.length())) {
+            val show = airingTodayList.getJSONObject(i)
+            todayIds.add(show.optInt("id"))
+        }
+
+        for (i in 0 until minOf(limit, onTheAirList.length())) {
+            val show = onTheAirList.getJSONObject(i)
+            val showId = show.optInt("id")
+            if (!todayIds.contains(showId)) {
+                todayIds.add(showId)
+            }
+        }
+
+        val details = todayIds.map { id ->
+            async(Dispatchers.IO) { fetchJsonDirect("$TMDB_BASE_URL/tv/$id?language=en-US") }.await()
+        }
+
+        for (i in 0 until minOf(limit, airingTodayList.length())) {
+            val show = airingTodayList.getJSONObject(i)
+            val detailsJson = details.getOrNull(i)
+            val episodeInfo = extractEpisodeInfo(show, detailsJson)
+            if (episodeInfo != null) {
+                todayShows.add(episodeInfo)
+            }
+        }
+
+        val onTheAirOffset = minOf(limit, airingTodayList.length())
+        for (i in 0 until minOf(limit, onTheAirList.length())) {
+            val show = onTheAirList.getJSONObject(i)
+            val detailsJson = details.getOrNull(onTheAirOffset + i)
+            val episodeInfo = extractEpisodeInfo(show, detailsJson)
+            if (episodeInfo != null && !todayShows.any { it.id == episodeInfo.id }) {
+                upcomingShows.add(episodeInfo)
+            }
+        }
+
+        for (i in 0 until minOf(limit, moviesList.length())) {
+            val movie = moviesList.getJSONObject(i)
+            val releaseDate = movie.optString("release_date")
+            if (releaseDate.isNotEmpty()) {
+                val releaseDateParsed = try {
+                    LocalDate.parse(releaseDate, DateTimeFormatter.ISO_DATE)
+                } catch (e: Exception) {
+                    null
+                }
+                val today = LocalDate.now()
+                if (releaseDateParsed != null && !releaseDateParsed.isBefore(today)) {
+                    upcomingMoviesList.add(
+                        ContentItem(
+                            id = movie.optInt("id"),
+                            name = movie.optString("title"),
+                            type = "movie",
+                            posterUrl = movie.optString("poster_path").let { 
+                                if (it.isNotEmpty()) "$IMAGE_BASE_URL$it" else null 
+                            },
+                            voteAverage = movie.optDouble("vote_average", 0.0),
+                            releaseDate = releaseDate
+                        )
+                    )
+                }
+            }
+        }
+
+        _airingToday.value = todayShows
+        _upcomingTVShows.value = upcomingShows
+        _upcoming.value = upcomingMoviesList
+    }
+
+    private fun extractEpisodeInfo(show: JSONObject, details: JSONObject?): AiringShow? {
+        val episode = details?.optJSONObject("next_episode_to_air") ?: return null
+        val airDate = episode.optString("air_date")
+        if (airDate.isEmpty()) return null
+
+        return AiringShow(
+            id = show.optInt("id"),
+            name = show.optString("name"),
+            posterUrl = show.optString("poster_path").let { 
+                if (it.isNotEmpty()) "$IMAGE_BASE_URL$it" else null 
+            },
+            voteAverage = show.optDouble("vote_average", 0.0),
+            episodeNumber = episode.optInt("episode_number"),
+            seasonNumber = episode.optInt("season_number"),
+            airDate = airDate,
+            airTime = episode.optString("air_time")
+        )
+    }
+
+    private suspend fun fetchJsonDirect(urlString: String): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpsURLConnection
+            connection.apply {
+                requestMethod = "GET"
+                setRequestProperty("accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
+                connectTimeout = 10000
+                readTimeout = 10000
+            }
+            val responseCode = connection.responseCode
+            if (responseCode == HttpsURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                JSONObject(response)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun loadAiringToday() {
+        viewModelScope.launch {
+            try {
+                val results = fetchTVOnTheAir()
+                _airingToday.value = results
+            } catch (e: Exception) {
+                _error.value = "Failed to load airing today: ${e.message}"
+            }
+        }
+    }
+
+    private suspend fun fetchTVOnTheAir(): List<AiringShow> = withContext(Dispatchers.IO) {
+        val cacheKey = "tv_on_the_air"
+        val cached: List<AiringShow>? = getFromCache(cacheKey)
+        if (cached != null) return@withContext cached
+
+        val url = URL("$TMDB_BASE_URL/tv/airing_today?language=en-US&page=1")
+
+        val connection = url.openConnection() as HttpsURLConnection
+        connection.apply {
+            requestMethod = "GET"
+            setRequestProperty("accept", "application/json")
+            setRequestProperty("Authorization", "Bearer $TMDB_API_KEY")
+            connectTimeout = 10000
+            readTimeout = 10000
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode != HttpsURLConnection.HTTP_OK) {
+                return@withContext emptyList()
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            val results = parseAiringShows(response)
+            putInCache(cacheKey, results)
+            results
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun parseAiringShows(jsonResponse: String): List<AiringShow> {
+        val results = mutableListOf<AiringShow>()
+        val jsonObject = JSONObject(jsonResponse)
+        val resultsArray = jsonObject.optJSONArray("results") ?: return results
+
+        for (i in 0 until resultsArray.length()) {
+            val item = resultsArray.getJSONObject(i)
+
+            val id = item.optInt("id")
+            val name = item.optString("name")
+            val posterPath = item.optString("poster_path")
+            val posterUrl = if (posterPath.isNotEmpty()) "$IMAGE_BASE_URL$posterPath" else null
+            val voteAverage = item.optDouble("vote_average", 0.0)
+
+            val lastEpisodeToAir = item.optJSONObject("last_episode_to_air")
+            val nextEpisodeToAir = item.optJSONObject("next_episode_to_air")
+            
+            val episodeNumber: Int
+            val seasonNumber: Int
+            val airDate: String
+            val airTime: String
+            
+            if (lastEpisodeToAir != null) {
+                episodeNumber = lastEpisodeToAir.optInt("episode_number")
+                seasonNumber = lastEpisodeToAir.optInt("season_number")
+                airDate = lastEpisodeToAir.optString("air_date")
+                airTime = lastEpisodeToAir.optString("air_time")
+            } else if (nextEpisodeToAir != null) {
+                episodeNumber = nextEpisodeToAir.optInt("episode_number")
+                seasonNumber = nextEpisodeToAir.optInt("season_number")
+                airDate = nextEpisodeToAir.optString("air_date")
+                airTime = nextEpisodeToAir.optString("air_time")
+            } else {
+                episodeNumber = 1
+                seasonNumber = 1
+                airDate = ""
+                airTime = ""
+            }
+
+            results.add(
+                AiringShow(
+                    id = id,
+                    name = name,
+                    posterUrl = posterUrl,
+                    voteAverage = voteAverage,
+                    episodeNumber = episodeNumber,
+                    seasonNumber = seasonNumber,
+                    airDate = airDate,
+                    airTime = airTime
+                )
+            )
+        }
+
+        return results
+    }
+
     fun loadActionMovies() {
         viewModelScope.launch {
             try {
@@ -563,6 +806,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadFantasyMovies()
     }
 
+    private suspend fun fetchFromTMDBFuture(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> {
+        val results = fetchFromTMDB(endpoint, forceMediaType, page)
+        val today = java.time.LocalDate.now().toString()
+        return results.filter { item ->
+            item.releaseDate.isNotEmpty() && item.releaseDate >= today
+        }
+    }
+
     private suspend fun fetchFromTMDB(endpoint: String, forceMediaType: String? = null, page: Int = 1): List<ContentItem> = withContext(Dispatchers.IO) {
         val cacheKey = "tmdb_${endpoint}_$page"
         val cached: List<ContentItem>? = getFromCache(cacheKey)
@@ -641,6 +892,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val posterUrl = if (posterPath.isNotEmpty()) "$IMAGE_BASE_URL$posterPath" else null
             val backdropUrl = if (backdropPath.isNotEmpty()) "$BACKDROP_BASE_URL$backdropPath" else null
             val voteAverage = item.optDouble("vote_average", 0.0)
+            val releaseDate = item.optString("release_date").ifEmpty { item.optString("first_air_date") }
 
             results.add(
                 ContentItem(
@@ -649,7 +901,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     type = mediaType,
                     posterUrl = posterUrl,
                     backdropUrl = backdropUrl,
-                    voteAverage = voteAverage
+                    voteAverage = voteAverage,
+                    releaseDate = releaseDate
                 )
             )
         }
@@ -728,7 +981,8 @@ data class ContentItem(
     val progressPosition: Long = 0L,
     val progressDuration: Long = 0L,
     val progressSeason: Int = 1,
-    val progressEpisode: Int = 1
+    val progressEpisode: Int = 1,
+    val releaseDate: String = ""
 )
 
 data class SeasonInfo(
@@ -754,4 +1008,15 @@ data class ContentDetails(
     val tagline: String,
     val type: String,
     val seasons: List<SeasonInfo> = emptyList()
+)
+
+data class AiringShow(
+    val id: Int,
+    val name: String,
+    val posterUrl: String?,
+    val voteAverage: Double = 0.0,
+    val episodeNumber: Int = 1,
+    val seasonNumber: Int = 1,
+    val airDate: String = "",
+    val airTime: String = ""
 )
