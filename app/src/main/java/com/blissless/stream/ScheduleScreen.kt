@@ -42,8 +42,12 @@ fun ScheduleScreen(
     val upcomingTVShows by viewModel.upcomingTVShows.collectAsState()
     val airingToday by viewModel.airingToday.collectAsState()
 
-    val upcomingFiltered = upcoming
-    val upcomingTVFiltered = upcomingTVShows
+    val upcomingFiltered = upcoming.sortedBy {
+        try { LocalDate.parse(it.releaseDate) } catch (e: Exception) { LocalDate.MAX }
+    }
+    val upcomingTVFiltered = upcomingTVShows.sortedBy {
+        try { LocalDate.parse(it.airDate) } catch (e: Exception) { LocalDate.MAX }
+    }
 
     fun onTVClick(show: AiringShow) {
         onContentClick(
