@@ -30,6 +30,12 @@ Download the APK from [Releases](https://github.com/blissless/stream/releases) a
 - Glide
 - MVVM Architecture
 
+## Forking the repository
+
+local.properties file with the following key needed:
+
+TMDB_API_KEY
+
 ## Disclaimer
 
 This app is for educational purposes only. I do not host, upload, or distribute any content. All streaming links are provided by third-party sources.
