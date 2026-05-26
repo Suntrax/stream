@@ -30,6 +30,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TMDB_BASE_URL = "https://api.themoviedb.org/3"
         private const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
         private const val BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w780"
+        private const val PROFILE_BASE_URL = "https://image.tmdb.org/t/p/w185"
         private const val DEBOUNCE_DELAY = 500L
         private const val CACHE_DURATION_MS = 10 * 60 * 1000L // 10 minutes
 
@@ -296,7 +297,7 @@ val upcoming: StateFlow<List<ContentItem>> = _upcoming.asStateFlow()
         contentDetailsCache[cacheKey]?.let { return@withContext it }
 
         val endpoint = if (contentItem.type == "movie") "movie/${contentItem.id}" else "tv/${contentItem.id}"
-        val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US")
+        val url = URL("$TMDB_BASE_URL/$endpoint?language=en-US&append_to_response=credits,videos,recommendations")
 
         val connection = url.openConnection() as HttpsURLConnection
         connection.apply {
@@ -382,6 +383,71 @@ val upcoming: StateFlow<List<ContentItem>> = _upcoming.asStateFlow()
                 }
             }
 
+            val castList = mutableListOf<CastMember>()
+            val credits = json.optJSONObject("credits")
+            credits?.let { c ->
+                val castArray = c.optJSONArray("cast")
+                castArray?.let { arr ->
+                    for (i in 0 until minOf(arr.length(), 20)) {
+                        val m = arr.getJSONObject(i)
+                        val profilePath = m.optString("profile_path")
+                        castList.add(
+                            CastMember(
+                                id = m.optInt("id"),
+                                name = m.optString("name"),
+                                character = m.optString("character"),
+                                profileUrl = if (profilePath.isNotEmpty()) "$PROFILE_BASE_URL$profilePath" else null
+                            )
+                        )
+                    }
+                }
+            }
+
+            val videoList = mutableListOf<VideoInfo>()
+            val videos = json.optJSONObject("videos")
+            videos?.let { v ->
+                val resultsArray = v.optJSONArray("results")
+                resultsArray?.let { arr ->
+                    for (i in 0 until arr.length()) {
+                        val video = arr.getJSONObject(i)
+                        val site = video.optString("site")
+                        val type = video.optString("type")
+                        if (site == "YouTube" && (type == "Trailer" || type == "Teaser")) {
+                            videoList.add(
+                                VideoInfo(
+                                    key = video.optString("key"),
+                                    name = video.optString("name"),
+                                    type = type,
+                                    site = site
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            val recList = mutableListOf<ContentItem>()
+            val recommendations = json.optJSONObject("recommendations")
+            recommendations?.let { r ->
+                val resultsArray = r.optJSONArray("results")
+                resultsArray?.let { arr ->
+                    for (i in 0 until minOf(arr.length(), 10)) {
+                        val rec = arr.getJSONObject(i)
+                        val recName = rec.optString("title").ifEmpty { rec.optString("name") }
+                        val recPosterPath = rec.optString("poster_path")
+                        recList.add(
+                            ContentItem(
+                                id = rec.optInt("id"),
+                                name = recName,
+                                type = mediaType,
+                                posterUrl = if (recPosterPath.isNotEmpty()) "$IMAGE_BASE_URL$recPosterPath" else null,
+                                voteAverage = rec.optDouble("vote_average", 0.0)
+                            )
+                        )
+                    }
+                }
+            }
+
             ContentDetails(
                 id = json.optInt("id"),
                 title = title,
@@ -398,7 +464,10 @@ val upcoming: StateFlow<List<ContentItem>> = _upcoming.asStateFlow()
                 status = status,
                 tagline = tagline,
                 type = mediaType,
-                seasons = seasons
+                seasons = seasons,
+                cast = castList,
+                trailers = videoList,
+                recommendations = recList
             )
         } catch (_: Exception) {
             null
@@ -1007,7 +1076,10 @@ data class ContentDetails(
     val status: String,
     val tagline: String,
     val type: String,
-    val seasons: List<SeasonInfo> = emptyList()
+    val seasons: List<SeasonInfo> = emptyList(),
+    val cast: List<CastMember> = emptyList(),
+    val trailers: List<VideoInfo> = emptyList(),
+    val recommendations: List<ContentItem> = emptyList()
 )
 
 data class AiringShow(
@@ -1019,4 +1091,18 @@ data class AiringShow(
     val seasonNumber: Int = 1,
     val airDate: String = "",
     val airTime: String = ""
+)
+
+data class CastMember(
+    val id: Int,
+    val name: String,
+    val character: String,
+    val profileUrl: String?
+)
+
+data class VideoInfo(
+    val key: String,
+    val name: String,
+    val type: String,
+    val site: String
 )

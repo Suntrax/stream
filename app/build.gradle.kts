@@ -20,8 +20,8 @@ android {
         applicationId = "com.blissless.stream"
         minSdk = 28
         targetSdk = 36
-        versionCode = 9
-        versionName = "2.6"
+        versionCode = 11
+        versionName = "2.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -732,7 +732,8 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
                 getCompletedList = { getCompletedList() },
                 getOnHoldList = { getOnHoldList() },
                 getDroppedList = { getDroppedList() },
-                refreshKey = detailRefreshKey
+                refreshKey = detailRefreshKey,
+                onContentClick = { item -> onContentClick(item) }
             )
         }
     }
