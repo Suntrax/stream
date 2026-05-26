@@ -95,7 +95,6 @@ fun ExploreScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
                 .verticalScroll(scrollState)
                 .padding(bottom = 80.dp)
         ) {

@@ -37,7 +37,6 @@ fun ScheduleScreen(
     viewModel: MainViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val isOled = false
     val upcoming by viewModel.upcoming.collectAsState()
     val upcomingTVShows by viewModel.upcomingTVShows.collectAsState()
     val airingToday by viewModel.airingToday.collectAsState()
@@ -68,7 +67,6 @@ fun ScheduleScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isOled) Color.Black else Color(0xFF121212))
             .statusBarsPadding()
     ) {
         Row(

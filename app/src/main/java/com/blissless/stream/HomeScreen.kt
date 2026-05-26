@@ -100,7 +100,6 @@ fun HomeScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
             .statusBarsPadding(),
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {

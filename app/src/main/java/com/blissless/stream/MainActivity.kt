@@ -11,7 +11,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,8 +29,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,7 +54,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,9 +80,8 @@ import com.blissless.stream.DetailScreen
 import com.blissless.stream.StreamBottomNav
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 
 object StreamTheme {
@@ -310,7 +305,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit) -> Unit) {
     var selectedTab by remember { mutableIntStateOf(1) }
@@ -403,18 +397,6 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
         }
     }
 
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(pagerState.currentPage) {
-        selectedTab = pagerState.currentPage
-    }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(100)
-        pagerState.animateScrollToPage(1)
-    }
-
     BackHandler(enabled = true) {
         when {
             isPlayerActive -> {
@@ -437,14 +419,18 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFF191933), Color(0xFF0A0A14), Color(0xFF000000))
+                )
+            )
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f),
-                userScrollEnabled = false
-            ) { page ->
-                when (page) {
+            Box(modifier = Modifier.weight(1f)) {
+                when (selectedTab) {
                     0 -> ScheduleScreen(onContentClick = { item: ContentItem ->
                         onContentClick(item)
                     })
@@ -481,9 +467,6 @@ fun StreamApp(viewModel: MainViewModel, onScrapeUrl: (String, (String?) -> Unit)
             selectedTab = selectedTab,
             onTabSelected = { tab: Int ->
                 selectedTab = tab
-                coroutineScope.launch {
-                    pagerState.scrollToPage(tab)
-                }
             },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
