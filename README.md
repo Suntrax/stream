@@ -14,6 +14,20 @@ A modern Android streaming app for discovering and watching movies and TV shows.
 - **Episode Selection** - Season and episode picker for TV shows
 - **Auto-next Episode** - Seamless playback continuation
 
+## Screenshots
+
+<p align="center">
+  <img src="./screenshots/home.png" width="30%" />
+  <img src="./screenshots/explore.png" width="30%" />
+  <img src="./screenshots/search.png" width="30%" />
+</p>
+
+<p align="center">
+  <img src="./screenshots/details.png" width="30%" />
+  <img src="./screenshots/episodes.png" width="30%" />
+  <img src="./screenshots/player.png" width="30%" />
+</p>
+
 ## Requirements
 
 - Android 8.0+ (API 28+)
