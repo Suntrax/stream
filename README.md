@@ -29,7 +29,7 @@ A modern Android streaming app for discovering and watching movies and TV shows.
 </p>
 
 <p align="center">
-  <img src="./screenshots/player.png" width="92%" />
+  <img src="./screenshots/player.png" width="91%" />
 </p>
 
 ## Requirements
